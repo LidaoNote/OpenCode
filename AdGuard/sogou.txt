@@ -1,0 +1,12 @@
+||this_ruleset_is_made_by_sukkaw.ruleset.skk.moe
+||otheve.beacon.qq.com
+||oth.str.mdt.qq.com
+||get.sogou.com
+||shouji.sogou.com
+||account.sogou.com
+||pinyin.sogou.com
+||ime.sogou.com
+||macime.sogou.com
+||sginput.qq.com
+User-Agent: SogouInput
+User-Agent: com.sogou.sogouinput.BaseKeyboard

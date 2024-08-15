@@ -1,0 +1,13 @@
+src/gz immortalwrt_core https://downloads.immortalwrt.org/releases/23.05.3/targets/x86/64/packages
+src/gz immortalwrt_base https://downloads.immortalwrt.org/releases/23.05.3/packages/x86_64/base
+src/gz immortalwrt_luci https://downloads.immortalwrt.org/releases/23.05.3/packages/x86_64/luci
+src/gz immortalwrt_packages https://downloads.immortalwrt.org/releases/23.05.3/packages/x86_64/packages
+src/gz immortalwrt_routing https://downloads.immortalwrt.org/releases/23.05.3/packages/x86_64/routing
+src/gz immortalwrt_telephony https://downloads.immortalwrt.org/releases/23.05.3/packages/x86_64/telephony
+
+src/gz immortalwrt_core https://mirrors.vsean.net/openwrt/releases/23.05.3/targets/x86/64/packages
+src/gz immortalwrt_base https://mirrors.vsean.net/openwrt/releases/23.05.3/packages/x86_64/base
+src/gz immortalwrt_luci https://mirrors.vsean.net/openwrt/releases/23.05.3/packages/x86_64/luci
+src/gz immortalwrt_packages https://mirrors.vsean.net/openwrt/releases/23.05.3/packages/x86_64/packages
+src/gz immortalwrt_routing https://mirrors.vsean.net/openwrt/releases/23.05.3/packages/x86_64/routing
+src/gz immortalwrt_telephony https://mirrors.vsean.net/openwrt/releases/23.05.3/packages/x86_64/telephony
