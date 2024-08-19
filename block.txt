@@ -3,3 +3,5 @@ youyu.api.ikuai8.com
 as1.ikuai8.com
 as2.ikuai8.com
 dis.ikuai8.com
+
+||example.com^
