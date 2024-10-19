@@ -15,7 +15,7 @@ theme: auto
 dns:
   bind_hosts:
     - 0.0.0.0
-  port: 5300
+  port: 53
   anonymize_client_ip: false
   ratelimit: 20
   ratelimit_subnet_len_ipv4: 24
