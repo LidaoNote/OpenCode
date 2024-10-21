@@ -6,18 +6,23 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# 安装所需软件
-echo "正在安装所需软件..."
-apt update
-apt install -y wget curl net-tools sed
-
 # 菜单选择
-echo "请选择操作选项:"
-echo "1) 安装 SmartDNS"
-echo "2) 安装 SmartDNS 和 AdGuardHome"
-echo "3) 卸载 SmartDNS"
-echo "4) 卸载 AdGuardHome"
-read -p "输入选项 (1/2/3/4): " choice
+show_menu() {
+    echo "请选择操作选项:"
+    echo "1) 安装更新和依赖"
+    echo "2) 安装 SmartDNS"
+    echo "3) 安装 SmartDNS 和 AdGuardHome"
+    echo "4) 卸载 SmartDNS"
+    echo "5) 卸载 AdGuardHome"
+    read -p "输入选项 (1/2/3/4/5): " choice
+}
+
+# 安装所需软件
+install_dependencies() {
+    echo "正在安装更新和所需软件..."
+    apt update
+    apt install -y wget curl net-tools sed
+}
 
 # 安装 SmartDNS
 install_smartdns() {
@@ -57,21 +62,6 @@ uninstall_adguardhome() {
     echo "AdGuardHome 卸载完成"
 }
 
-# 检查安装状态
-check_installation() {
-    if netstat -tuln | grep -q ':53'; then
-        echo "SmartDNS 安装成功，端口 53 正在监听"
-    else
-        echo "SmartDNS 安装失败或未监听端口 53"
-    fi
-
-    if netstat -tuln | grep -q ':3000'; then
-        echo "AdGuardHome 安装成功，端口 3000 正在监听"
-    else
-        echo "AdGuardHome 安装失败或未监听端口 3000"
-    fi
-}
-
 # 下载并配置 SmartDNS
 configure_smartdns() {
     mkdir -p /etc/smartdns
@@ -79,32 +69,26 @@ configure_smartdns() {
 
     echo "设置监听端口..."
     if [ "$1" = "adguard" ]; then
-        # 检查当前绑定的端口
-        current_bind=$(grep 'bind \[::\]:' /etc/smartdns/smartdns.conf | awk '{print $2}' | cut -d: -f2)
-        if [ "$current_bind" != "5353" ]; then
-            sed -i 's/bind \[::\]:[0-9]\+/bind \[::\]:5353/g' /etc/smartdns/smartdns.conf
-        fi
-        
-        current_bind_tcp=$(grep 'bind-tcp \[::\]:' /etc/smartdns/smartdns.conf | awk '{print $2}' | cut -d: -f2)
-        if [ "$current_bind_tcp" != "5353" ]; then
-            sed -i 's/bind-tcp \[::\]:[0-9]\+/bind-tcp \[::\]:5353/g' /etc/smartdns/smartdns.conf
-        fi
+        # 设置端口为 5353
+        sed -i 's/bind \[::\]:[0-9]\+/bind \[::\]:5353/g' /etc/smartdns/smartdns.conf
+        sed -i 's/bind-tcp \[::\]:[0-9]\+/bind-tcp \[::\]:5353/g' /etc/smartdns/smartdns.conf
     else
-        # 检查当前绑定的端口
-        current_bind=$(grep 'bind \[::\]:' /etc/smartdns/smartdns.conf | awk '{print $2}' | cut -d: -f2)
-        if [ "$current_bind" != "53" ]; then
-            sed -i 's/bind \[::\]:[0-9]\+/bind \[::\]:53/g' /etc/smartdns/smartdns.conf
-        fi
-        
-        current_bind_tcp=$(grep 'bind-tcp \[::\]:' /etc/smartdns/smartdns.conf | awk '{print $2}' | cut -d: -f2)
-        if [ "$current_bind_tcp" != "53" ]; then
-            sed -i 's/bind-tcp \[::\]:[0-9]\+/bind-tcp \[::\]:53/g' /etc/smartdns/smartdns.conf
-        fi
+        # 设置端口为 53
+        sed -i 's/bind \[::\]:[0-9]\+/bind \[::\]:53/g' /etc/smartdns/smartdns.conf
+        sed -i 's/bind-tcp \[::\]:[0-9]\+/bind-tcp \[::\]:53/g' /etc/smartdns/smartdns.conf
     fi
 
-    echo "请输入您的运营商 DNS 服务器地址:"
+    echo "请输入您的运营商 DNS 服务器地址 (按 Enter 使用默认值):"
     read -p "DNS1: " dns1
     read -p "DNS2: " dns2
+
+    # 如果用户未输入，使用默认值
+    if [ -z "$dns1" ]; then
+        dns1="223.6.6.6"
+    fi
+    if [ -z "$dns2" ]; then
+        dns2="119.29.29.29"
+    fi
 
     # 修改 DNS 服务器组配置
     sed -i "s|server  运营商DNS1 -group china -exclude-default-group|server $dns1 -group china -exclude-default-group|g" /etc/smartdns/smartdns.conf
@@ -114,8 +98,6 @@ configure_smartdns() {
 
     echo "重启 SmartDNS 服务..."
     systemctl restart smartdns
-
-    check_installation
 }
 
 # 下载 AdGuardHome 配置文件并重启服务
@@ -145,21 +127,28 @@ download_adguard_config() {
 }
 
 # 执行操作
+show_menu
+
 case $choice in
     1)
+        install_dependencies
+        ;;
+    2)
+        install_dependencies
         install_smartdns
         configure_smartdns ""
         ;;
-    2)
+    3)
+        install_dependencies
         install_smartdns
         install_adguardhome
         configure_smartdns "adguard"
         download_adguard_config
         ;;
-    3)
+    4)
         uninstall_smartdns
         ;;
-    4)
+    5)
         uninstall_adguardhome
         ;;
     *)
