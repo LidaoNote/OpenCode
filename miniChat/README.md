@@ -17,7 +17,7 @@ server {
     listen 60000 ssl; # 对外监听端口
     server_name name.com;  # 添加域名
     ssl_certificate /cert/name.com.pem;
-    ssl_certificate_key /cert/name.comkey;
+    ssl_certificate_key /cert/name.com.key;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;  # 修正 avoid 为 aNULL
 
