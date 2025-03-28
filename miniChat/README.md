@@ -14,7 +14,7 @@ pip install aiohttp aiohttp_jinja2 jinja2
 # nginx反代设置
 ```
 server {
-    listen 60250 ssl; # 监听端口
+    listen 60250 ssl; # 对外监听端口
     server_name name.com;  # 添加域名
     ssl_certificate /cert/name.com.pem;
     ssl_certificate_key /cert/name.comkey;
