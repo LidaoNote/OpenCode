@@ -1,4 +1,4 @@
-# minihat
+# miniChat
 
 ## 联系方式
 
