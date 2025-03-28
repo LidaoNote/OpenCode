@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>聊天室</title>
+<style>
+    * {
+        box-sizing: border-box;
+    }
+
+    body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        display: flex;
+        height: 100vh;
+        background: #eaeaea;
+        justify-content: center;
+        align-items: center;
+        padding: 10px;
+    }
+
+    #chat {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        max-width: 800px;
+        width: 100%;
+        height: 600px;
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        overflow: hidden;
+        position: relative;
+    }
+
+    #messages {
+        flex: 1;
+        padding: 15px;
+        padding-bottom: 70px;
+        overflow-y: auto;
+        background: #f9f9f9;
+    }
+
+    .message-container {
+        display: flex;
+        flex-direction: column; /* 改为纵向排列 */
+        align-items: flex-start; /* 左对齐 */
+        margin: 8px 0;
+    }
+
+    .message-container.self {
+        align-items: flex-end; /* 自己消息右对齐 */
+    }
+
+    .bubble {
+        padding: 10px 14px;
+        border-radius: 12px;
+        max-width: 75%;
+        word-wrap: break-word;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        color: #333;
+        font-size: 14px;
+        line-height: 1.4;
+        display: inline-flex;
+        flex-direction: column;
+        position: relative;
+    }
+
+    .bubble.self {
+        background: #d3ece2;
+        align-items: flex-end;
+        border-bottom-right-radius: 0;
+    }
+
+    .bubble.self::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        right: -10px;
+        width: 0;
+        height: 0;
+        border-left: 10px solid #d3ece2;
+        border-top: 10px solid transparent;
+    }
+
+    .bubble.other {
+        background: #e0e0e0;
+        align-items: flex-start;
+        border-top-left-radius: 0;
+    }
+
+    .bubble.other::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -10px;
+        width: 0;
+        height: 0;
+        border-right: 10px solid #e0e0e0;
+        border-bottom: 10px solid transparent;
+    }
+
+    .username {
+        font-size: 16px; /* 字号加大 */
+        color: #444;
+        font-weight: bold; /* 粗体 */
+        margin-bottom: 4px; /* 与气泡的间距 */
+    }
+
+    .content-container {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+    }
+
+    .content {
+        word-break: break-word;
+    }
+
+    .timestamp {
+        font-size: 12px;
+        color: #666;
+        white-space: nowrap;
+        margin-left: 8px;
+    }
+
+    .system-message {
+        font-size: 12px;
+        color: #888;
+        text-align: center;
+        margin: 8px 0;
+    }
+
+    #input-area {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        padding: 12px;
+        background: #fff;
+        border-top: 1px solid #ddd;
+        display: flex;
+        align-items: center;
+        z-index: 10;
+    }
+
+    #msg {
+        flex: 1;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        color: #333;
+        font-size: 14px;
+    }
+
+    #msg:focus {
+        outline: none;
+        border-color: #d3ece2;
+        box-shadow: 0 0 5px rgba(167, 199, 184, 0.5);
+    }
+
+    button {
+        padding: 10px 18px;
+        background: #d3ece2;
+        color: #333;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: 0.2s;
+        font-size: 14px;
+        margin-left: 10px;
+    }
+
+    button:hover {
+        background: #8faea0;
+    }
+
+    #nickname-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    #nickname-box {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        text-align: center;
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+        width: 90%;
+        max-width: 300px;
+    }
+
+    #name {
+        width: calc(100% - 20px);
+        margin-bottom: 12px;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        color: #333;
+        font-size: 14px;
+    }
+
+    #error {
+        color: red;
+        margin-top: 8px;
+        font-size: 12px;
+    }
+
+    @media (max-width: 480px) {
+        body {
+            padding: 0;
+            height: 100dvh;
+            width: 100vw;
+        }
+
+        #chat {
+            height: 100dvh;
+            max-height: 100dvh;
+            width: 100vw;
+            max-width: 100vw;
+            border-radius: 0;
+        }
+
+        #messages {
+            padding: 2vw;
+            padding-bottom: 15vw;
+        }
+
+        #input-area {
+            padding: 2vw;
+            position: fixed;
+            bottom: 0;
+            border-top: 1px solid #ddd;
+            box-shadow: 0 -0.5vw 1vw rgba(0, 0, 0, 0.1);
+        }
+
+        #msg {
+            padding: 2vw;
+            font-size: 4vw;
+            border: 0.2vw solid #ccc;
+            border-radius: 1vw;
+        }
+
+        button {
+            padding: 2vw 4vw;
+            font-size: 4vw;
+            margin-left: 2vw;
+            border-radius: 1vw;
+        }
+
+        .bubble {
+            padding: 2vw 3vw;
+            border-radius: 2vw;
+            font-size: 4vw;
+            box-shadow: 0 0.5vw 1vw rgba(0, 0, 0, 0.1);
+        }
+
+        .bubble.self {
+            border-bottom-right-radius: 0;
+        }
+
+        .bubble.self::after {
+            right: -2vw;
+            border-left: 2vw solid #d3ece2;
+            border-top: 2vw solid transparent;
+        }
+
+        .bubble.other {
+            border-top-left-radius: 0;
+        }
+
+        .bubble.other::before {
+            top: 0;
+            left: -2vw;
+            border-right: 2vw solid #e0e0e0;
+            border-bottom: 2vw solid transparent;
+        }
+
+        .username {
+            font-size: 4vw; /* 移动端字号调整 */
+            margin-bottom: 1vw;
+        }
+
+        .timestamp {
+            font-size: 3vw;
+            margin-left: 1vw;
+        }
+
+        .system-message {
+            font-size: 3vw;
+            margin: 2vw 0;
+        }
+
+        #nickname-box {
+            padding: 3vw;
+            border-radius: 1.5vw;
+            box-shadow: 0 1vw 2vw rgba(0, 0, 0, 0.2);
+            max-width: 80vw;
+        }
+
+        #name {
+            width: calc(100% - 4vw);
+            margin-bottom: 2vw;
+            padding: 2vw;
+            font-size: 4vw;
+            border: 0.2vw solid #ccc;
+            border-radius: 1vw;
+        }
+
+        #error {
+            margin-top: 1vw;
+            font-size: 3vw;
+        }
+    }
+</style>
+</head>
+<body>
+    <div id="nickname-modal">
+        <div id="nickname-box">
+            <input id="name" placeholder="输入昵称" onkeypress="if(event.key==='Enter') join()">
+            <button onclick="join()">进入聊天</button>
+            <div id="error"></div>
+        </div>
+    </div>
+    <div id="chat" style="display: none;">
+        <div id="messages"></div>
+        <div id="input-area">
+            <input id="msg" placeholder="输入消息" onkeypress="if(event.key==='Enter') send()">
+            <button onclick="send()">发送</button>
+        </div>
+    </div>
+    <script>
+        let ws, username, fingerprint;
+        let heartbeatInterval;
+
+        function generateFingerprint() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.textBaseline = "top";
+            ctx.font = "14px 'Arial'";
+            ctx.fillStyle = "#f60";
+            ctx.fillRect(125, 1, 62, 20);
+            ctx.fillStyle = "#069";
+            ctx.fillText("Fingerprint Test", 2, 15);
+            const canvasData = canvas.toDataURL();
+
+            const components = [
+                navigator.userAgent,
+                navigator.language || navigator.languages[0],
+                screen.width + 'x' + screen.height,
+                screen.colorDepth,
+                new Date().getTimezoneOffset(),
+                canvasData
+            ];
+
+            const hash = components.join('').split('').reduce((a, b) => {
+                a = ((a << 5) - a) + b.charCodeAt(0);
+                return a & a;
+            }, 0);
+
+            return Math.abs(hash).toString(16);
+        }
+
+        function getWebSocketUrl() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.host;
+            return `${protocol}//${host}/ws`;
+        }
+
+        function startHeartbeat() {
+            heartbeatInterval = setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ event: 'ping' }));
+                } else {
+                    clearInterval(heartbeatInterval);
+                    reconnect();
+                }
+            }, 30000);
+        }
+
+        function connect() {
+            console.log('尝试连接 WebSocket...');
+            const wsUrl = getWebSocketUrl();
+            ws = new WebSocket(wsUrl);
+            ws.onopen = () => {
+                console.log('WebSocket 连接成功');
+                ws.send(JSON.stringify({ event: 'join', name: username, fingerprint: fingerprint }));
+                startHeartbeat();
+            };
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                console.log('收到消息:', data);
+                if (data.event === 'name_taken') {
+                    document.getElementById('error').textContent = data.error;
+                    ws.close();
+                } else if (data.event === 'join_success') {
+                    fingerprint = data.fingerprint;
+                    document.getElementById('nickname-modal').style.display = 'none';
+                    document.getElementById('chat').style.display = 'flex';
+                    console.log('成功进入聊天界面');
+                } else if (data.event === 'message') {
+                    appendMessage(data.name, data.msg);
+                } else if (data.event === 'pong') {
+                    console.log('Received pong from server');
+                }
+            };
+            ws.onerror = () => {
+                document.getElementById('error').textContent = '连接失败，正在尝试重连...';
+                console.error('WebSocket 连接错误');
+                reconnect();
+            };
+            ws.onclose = () => {
+                document.getElementById('error').textContent = '连接已关闭，正在尝试重连...';
+                clearInterval(heartbeatInterval);
+                console.log('WebSocket 连接关闭');
+                reconnect();
+            };
+        }
+
+        function reconnect() {
+            setTimeout(() => {
+                if (!username || !fingerprint) return;
+                connect();
+            }, 2000);
+        }
+
+        function join() {
+            username = document.getElementById('name').value.trim();
+            if (!username) {
+                document.getElementById('error').textContent = '请输入昵称';
+                return;
+            }
+            if (!fingerprint) fingerprint = generateFingerprint();
+            document.getElementById('error').textContent = '';
+            console.log('用户尝试加入:', username);
+            connect();
+        }
+
+        function appendMessage(name, msg) {
+            const isSelf = name === username;
+            const container = document.createElement('div');
+            if (name === '系统') {
+                container.className = 'system-message';
+                const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                container.textContent = `${msg} [${timestamp}]`;
+            } else {
+                container.className = `message-container ${isSelf ? 'self' : ''}`;
+                if (!isSelf) {
+                    const userSpan = document.createElement('span');
+                    userSpan.className = 'username';
+                    userSpan.textContent = name;
+                    container.appendChild(userSpan);
+                }
+                const bubble = document.createElement('div');
+                bubble.className = `bubble ${isSelf ? 'self' : 'other'}`;
+                const contentContainer = document.createElement('div');
+                contentContainer.className = 'content-container';
+                const contentSpan = document.createElement('span');
+                contentSpan.className = 'content';
+                contentSpan.textContent = msg;
+                const timeSpan = document.createElement('span');
+                timeSpan.className = 'timestamp';
+                timeSpan.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                contentContainer.appendChild(contentSpan);
+                contentContainer.appendChild(timeSpan);
+                bubble.appendChild(contentContainer);
+                container.appendChild(bubble);
+            }
+            document.getElementById('messages').appendChild(container);
+            document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+        }
+
+        function send() {
+            let msg = document.getElementById('msg').value.trim();
+            if (!msg || !ws || ws.readyState !== WebSocket.OPEN) return;
+            ws.send(JSON.stringify({ event: 'message', msg: msg }));
+            document.getElementById('msg').value = '';
+        }
+    </script>
+</body>
+</html>
