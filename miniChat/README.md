@@ -1,4 +1,4 @@
-# minic
+# minichat
 
 ## 联系方式
 
