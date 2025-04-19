@@ -1,8 +1,5 @@
 # SmartDash
 
-![Python](https://img.shields.io/badge/Python-3.6+-blue.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
-
 SmartDash 是一个基于 Flask 的 Web 工具，用于管理 SmartDNS 配置，提供简洁的中文界面。支持上游服务器、域名组、缓存设置、备份还原和 DNS 测试，兼容 CentOS 和 Ubuntu。自动化安装脚本从 GitHub 下载并部署，快速高效。
 
 ## 功能
@@ -21,15 +18,18 @@ SmartDash 是一个基于 Flask 的 Web 工具，用于管理 SmartDNS 配置，
 ## 安装
 
 1. **下载安装脚本**：
+
    ```bash
    curl -L -o install_smartdash.sh https://raw.githubusercontent.com/LidaoNote/OpenCode/SmartDash/main/install_smartdash.sh
    chmod +x install_smartdash.sh
    ```
 
 2. **运行脚本**：
+
    ```bash
    sudo ./install_smartdash.sh
    ```
+
    - 输入安装路径（默认 `/root/SmartDash/`）或按 Enter。
    - 脚本自动：
      - 下载 SmartDash ZIP 包并解压。
@@ -37,6 +37,7 @@ SmartDash 是一个基于 Flask 的 Web 工具，用于管理 SmartDNS 配置，
      - 配置并启动 `smartdash` 服务。
 
 3. **验证**：
+
    - 检查服务：`systemctl status smartdash`
    - 访问：`http://<服务器 IP>:8088`
 
@@ -52,8 +53,8 @@ SmartDash 是一个基于 Flask 的 Web 工具，用于管理 SmartDNS 配置，
 
 ## 许可
 
-采用 [MIT 许可证](LICENSE)。详情见 [LICENSE](LICENSE) 文件.
+采用 MIT 许可证。详情见 LICENSE 文件.
 
 ---
 
-问题或建议？请在 [Issues](https://github.com/LidaoNote/OpenCode/SmartDash/issues) 提出！
+问题或建议？请在 Issues 提出！
