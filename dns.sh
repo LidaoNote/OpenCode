@@ -6,6 +6,21 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# 检测系统架构
+ARCH=$(uname -m)
+case "$ARCH" in
+    x86_64)
+        SMARTDNS_ARCH="x86_64"
+        ;;
+    arm*|aarch64)
+        SMARTDNS_ARCH="arm"  # SmartDNS uses 'arm' for both arm and arm64
+        ;;
+    *)
+        echo "不支持的架构: $ARCH"
+        exit 1
+        ;;
+esac
+
 # 菜单选择
 show_menu() {
     echo "请选择操作选项:"
@@ -21,19 +36,32 @@ show_menu() {
 install_dependencies() {
     echo "正在安装更新和所需软件..."
     apt update
-    apt install -y wget curl net-tools sed
+    apt install -y wget curl net-tools sed jq
+}
+
+# 获取最新 SmartDNS 版本
+get_latest_smartdns_url() {
+    echo "正在获取最新 SmartDNS 版本..."
+    LATEST_RELEASE=$(curl -s https://api.github.com/repos/pymumu/smartdns/releases/latest)
+    DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | jq -r ".assets[] | select(.name | contains(\"$SMARTDNS_ARCH-linux-all.tar.gz\")) | .browser_download_url")
+    if [ -z "$DOWNLOAD_URL" ]; then
+        echo "无法获取 SmartDNS 下载链接"
+        exit 1
+    fi
+    echo "最新 SmartDNS 下载链接: $DOWNLOAD_URL"
 }
 
 # 安装 SmartDNS
 install_smartdns() {
     echo "正在安装 SmartDNS..."
-    wget https://github.com/pymumu/smartdns/releases/download/Release46/smartdns.1.2024.06.12-2222.x86_64-linux-all.tar.gz
-    tar zxf smartdns.1.2024.06.12-2222.x86_64-linux-all.tar.gz
+    get_latest_smartdns_url
+    wget "$DOWNLOAD_URL" -O smartdns.tar.gz
+    tar zxf smartdns.tar.gz
     cd smartdns
     chmod +x ./install
     ./install -i
     cd ..
-    rm -rf smartdns smartdns.1.2024.06.12-2222.x86_64-linux-all.tar.gz
+    rm -rf smartdns smartdns.tar.gz
 }
 
 # 安装 AdGuardHome
@@ -45,13 +73,14 @@ install_adguardhome() {
 # 卸载 SmartDNS
 uninstall_smartdns() {
     echo "正在卸载 SmartDNS..."
-    wget https://github.com/pymumu/smartdns/releases/download/Release46/smartdns.1.2024.06.12-2222.x86_64-linux-all.tar.gz
-    tar zxf smartdns.1.2024.06.12-2222.x86_64-linux-all.tar.gz
+    get_latest_smartdns_url
+    wget "$DOWNLOAD_URL" -O smartdns.tar.gz
+    tar zxf smartdns.tar.gz
     cd smartdns
     chmod +x ./install
     ./install -u
     cd ..
-    rm -rf smartdns smartdns.1.2024.06.12-2222.x86_64-linux-all.tar.gz
+    rm -rf smartdns smartdns.tar.gz
     echo "SmartDNS 卸载完成"
 }
 
