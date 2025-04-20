@@ -13,7 +13,7 @@ case "$ARCH" in
         SMARTDNS_ARCH="x86_64"
         ;;
     arm*|aarch64)
-        SMARTDNS_ARCH="arm"  # SmartDNS uses 'arm' for both arm and arm64
+        SMARTDNS_ARCH="arm"  # SmartDNS uses 'arm' for both arm and arm64 in .deb packages
         ;;
     *)
         echo "不支持的架构: $ARCH"
@@ -36,16 +36,16 @@ show_menu() {
 install_dependencies() {
     echo "正在安装更新和所需软件..."
     apt update
-    apt install -y wget curl net-tools sed jq
+    apt install -y wget curl net-tools sed jq dpkg
 }
 
-# 获取最新 SmartDNS 版本
+# 获取最新 SmartDNS 版本的 .deb 包
 get_latest_smartdns_url() {
     echo "正在获取最新 SmartDNS 版本..."
     LATEST_RELEASE=$(curl -s https://api.github.com/repos/pymumu/smartdns/releases/latest)
-    DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | jq -r ".assets[] | select(.name | contains(\"$SMARTDNS_ARCH-linux-all.tar.gz\")) | .browser_download_url")
+    DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | jq -r ".assets[] | select(.name | contains(\"smartdns.1\") and contains(\"${SMARTDNS_ARCH}-debian-all.deb\")) | .browser_download_url")
     if [ -z "$DOWNLOAD_URL" ]; then
-        echo "无法获取 SmartDNS 下载链接"
+        echo "无法获取 SmartDNS .deb 包下载链接"
         exit 1
     fi
     echo "最新 SmartDNS 下载链接: $DOWNLOAD_URL"
@@ -55,32 +55,44 @@ get_latest_smartdns_url() {
 install_smartdns() {
     echo "正在安装 SmartDNS..."
     get_latest_smartdns_url
-    wget "$DOWNLOAD_URL" -O smartdns.tar.gz
-    tar zxf smartdns.tar.gz
-    cd smartdns
-    chmod +x ./install
-    ./install -i
-    cd ..
-    rm -rf smartdns smartdns.tar.gz
+    wget "$DOWNLOAD_URL" -O smartdns.deb
+    if [ $? -ne 0 ]; then
+        echo "下载 SmartDNS .deb 包失败"
+        exit 1
+    fi
+    dpkg -i smartdns.deb
+    if [ $? -ne 0 ]; then
+        echo "安装 SmartDNS .deb 包失败，尝试修复依赖..."
+        apt install -f -y
+        dpkg -i smartdns.deb
+        if [ $? -ne 0 ]; then
+            echo "安装 SmartDNS 失败，请检查错误信息"
+            rm -f smartdns.deb
+            exit 1
+        fi
+    fi
+    rm -f smartdns.deb
+    echo "SmartDNS 安装完成"
 }
 
 # 安装 AdGuardHome
 install_adguardhome() {
     echo "正在安装 AdGuardHome..."
     curl -s -S -L https://raw.githubusercontent.com/AdguardTeam/AdGuardHome/master/scripts/install.sh | sh -s --
+    if [ $? -ne 0 ]; then
+        echo "AdGuardHome 安装失败"
+        exit 1
+    fi
 }
 
 # 卸载 SmartDNS
 uninstall_smartdns() {
     echo "正在卸载 SmartDNS..."
-    get_latest_smartdns_url
-    wget "$DOWNLOAD_URL" -O smartdns.tar.gz
-    tar zxf smartdns.tar.gz
-    cd smartdns
-    chmod +x ./install
-    ./install -u
-    cd ..
-    rm -rf smartdns smartdns.tar.gz
+    dpkg -r smartdns
+    if [ $? -ne 0 ]; then
+        echo "卸载 SmartDNS 失败，请检查是否已安装"
+        exit 1
+    fi
     echo "SmartDNS 卸载完成"
 }
 
@@ -88,6 +100,10 @@ uninstall_smartdns() {
 uninstall_adguardhome() {
     echo "正在卸载 AdGuardHome..."
     curl -s -S -L https://raw.githubusercontent.com/AdguardTeam/AdGuardHome/master/scripts/install.sh | sh -s -- -u
+    if [ $? -ne 0 ]; then
+        echo "AdGuardHome 卸载失败"
+        exit 1
+    fi
     echo "AdGuardHome 卸载完成"
 }
 
@@ -95,6 +111,10 @@ uninstall_adguardhome() {
 configure_smartdns() {
     mkdir -p /etc/smartdns
     wget -O /etc/smartdns/smartdns.conf https://raw.githubusercontent.com/LidaoNote/OpenCode/refs/heads/main/SmartDNS/smartdns_s.conf
+    if [ $? -ne 0 ]; then
+        echo "下载 SmartDNS 配置文件失败"
+        exit 1
+    fi
 
     echo "设置监听端口..."
     if [ "$1" = "adguard" ]; then
@@ -124,9 +144,17 @@ configure_smartdns() {
     sed -i "s|server  运营商DNS2 -group china -exclude-default-group|server $dns2 -group china -exclude-default-group|g" /etc/smartdns/smartdns.conf
 
     wget -O /etc/smartdns/all_domains.conf https://github.com/LidaoNote/OpenCode/raw/refs/heads/main/SmartDNS/all_domains.conf
+    if [ $? -ne 0 ]; then
+        echo "下载 SmartDNS 域名列表失败"
+        exit 1
+    fi
 
     echo "重启 SmartDNS 服务..."
     systemctl restart smartdns
+    if [ $? -ne 0 ]; then
+        echo "SmartDNS 服务重启失败"
+        exit 1
+    fi
 }
 
 # 下载 AdGuardHome 配置文件并重启服务
@@ -134,24 +162,27 @@ download_adguard_config() {
     mkdir -p /opt/AdGuardHome
     echo "正在下载 AdGuardHome 配置文件..."
     wget -O /opt/AdGuardHome/AdGuardHome.yaml https://github.com/LidaoNote/OpenCode/raw/refs/heads/main/AdGuardHome/AdGuardHome.yaml
-
-    # 检查下载是否成功
-    if [ $? -eq 0 ]; then
-        echo "配置文件下载成功，保存到 /opt/AdGuardHome/AdGuardHome.yaml"
-    else
-        echo "配置文件下载失败"
+    if [ $? -ne 0 ]; then
+        echo "AdGuardHome 配置文件下载失败"
         exit 1
     fi
+
+    echo "配置文件下载成功，保存到 /opt/AdGuardHome/AdGuardHome.yaml"
 
     # 重启 AdGuardHome 服务
     echo "重启 AdGuardHome 服务..."
     systemctl restart AdGuardHome
+    if [ $? -ne 0 ]; then
+        echo "AdGuardHome 服务重启失败"
+        exit 1
+    fi
 
     # 检查服务状态
     if systemctl is-active --quiet AdGuardHome; then
         echo "AdGuardHome 服务已成功重启"
     else
-        echo "AdGuardHome 服务重启失败"
+        echo "AdGuardHome 服务未运行"
+        exit 1
     fi
 }
 
