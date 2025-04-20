@@ -13,9 +13,13 @@ case "$ARCH" in
         SMARTDNS_ARCH="x86_64"
         INSTALL_METHOD="tar"
         ;;
-    arm*|aarch64)
+    aarch64)
+        SMARTDNS_ARCH="aarch64"
+        INSTALL_METHOD="binary"  # Using smartdns-aarch64 binary
+        ;;
+    arm*)
         SMARTDNS_ARCH="arm"
-        INSTALL_METHOD="deb"
+        INSTALL_METHOD="tar"
         ;;
     *)
         echo "不支持的架构: $ARCH"
@@ -38,10 +42,20 @@ show_menu() {
 install_dependencies() {
     echo "正在安装更新和所需软件..."
     apt update
-    apt install -y wget curl net-tools sed jq dpkg
+    apt install -y wget curl net-tools sed jq
     if [ $? -ne 0 ]; then
         echo "依赖安装失败，请检查网络或软件源"
         exit 1
+    fi
+}
+
+# 检查端口冲突
+check_port_conflict() {
+    if netstat -tulnp | grep -q ":53"; then
+        echo "端口 53 已被占用，禁用 systemd-resolved..."
+        systemctl disable --now systemd-resolved
+        rm -f /etc/resolv.conf
+        echo "nameserver 8.8.8.8" > /etc/resolv.conf
     fi
 }
 
@@ -49,8 +63,8 @@ install_dependencies() {
 get_latest_smartdns_url() {
     echo "正在获取最新 SmartDNS 版本..."
     LATEST_RELEASE=$(curl -s https://api.github.com/repos/pymumu/smartdns/releases/latest)
-    if [ "$INSTALL_METHOD" = "deb" ]; then
-        DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | jq -r ".assets[] | select(.name | contains(\"smartdns.1\") and contains(\"${SMARTDNS_ARCH}-debian-all.deb\")) | .browser_download_url")
+    if [ "$INSTALL_METHOD" = "binary" ]; then
+        DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | jq -r ".assets[] | select(.name == \"smartdns-${SMARTDNS_ARCH}\") | .browser_download_url")
     else
         DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | jq -r ".assets[] | select(.name | contains(\"${SMARTDNS_ARCH}-linux-all.tar.gz\")) | .browser_download_url")
     fi
@@ -64,25 +78,18 @@ get_latest_smartdns_url() {
 # 安装 SmartDNS
 install_smartdns() {
     echo "正在安装 SmartDNS..."
+    install_dependencies
+    check_port_conflict
     get_latest_smartdns_url
-    if [ "$INSTALL_METHOD" = "deb" ]; then
-        wget "$DOWNLOAD_URL" -O smartdns.deb
+    if [ "$INSTALL_METHOD" = "binary" ]; then
+        wget "$DOWNLOAD_URL" -O smartdns
         if [ $? -ne 0 ]; then
-            echo "下载 SmartDNS .deb 包失败"
+            echo "下载 SmartDNS 二进制文件失败"
             exit 1
         fi
-        dpkg -i smartdns.deb
-        if [ $? -ne 0 ]; then
-            echo "安装 SmartDNS .deb 包失败，尝试修复依赖..."
-            apt install -f -y
-            dpkg -i smartdns.deb
-            if [ $? -ne 0 ]; then
-                echo "安装 SmartDNS 失败，请检查错误信息"
-                rm -f smartdns.deb
-                exit 1
-            fi
-        fi
-        rm -f smartdns.deb
+        mv smartdns /usr/sbin/smartdns
+        chmod +x /usr/sbin/smartdns
+        chown root:root /usr/sbin/smartdns
     else
         wget "$DOWNLOAD_URL" -O smartdns.tar.gz
         if [ $? -ne 0 ]; then
@@ -102,11 +109,39 @@ install_smartdns() {
         cd ..
         rm -rf smartdns smartdns.tar.gz
     fi
-    # 验证安装
+    # 验证二进制
     if command -v smartdns >/dev/null 2>&1; then
         echo "SmartDNS 安装成功，版本: $(smartdns --version)"
     else
         echo "SmartDNS 安装失败，未找到 smartdns 命令"
+        exit 1
+    fi
+    # 创建 systemd 服务文件
+    cat > /lib/systemd/system/smartdns.service << EOF
+[Unit]
+Description=SmartDNS server
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/usr/sbin/smartdns -f -c /etc/smartdns/smartdns.conf
+ExecReload=/bin/kill -HUP \$MAINPID
+ExecStop=/bin/kill -TERM \$MAINPID
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    # 确保配置目录存在
+    mkdir -p /etc/smartdns
+    # 重新加载并启动服务
+    systemctl daemon-reload
+    systemctl enable smartdns
+    systemctl restart smartdns
+    if systemctl is-active --quiet smartdns; then
+        echo "SmartDNS 服务已成功启动"
+    else
+        echo "SmartDNS 服务启动失败，请检查 'systemctl status smartdns.service'"
         exit 1
     fi
 }
@@ -124,22 +159,12 @@ install_adguardhome() {
 # 卸载 SmartDNS
 uninstall_smartdns() {
     echo "正在卸载 SmartDNS..."
-    if [ "$INSTALL_METHOD" = "deb" ]; then
-        dpkg -r smartdns
-        if [ $? -ne 0 ]; then
-            echo "卸载 SmartDNS 失败，请检查是否已安装"
-            exit 1
-        fi
-    else
-        get_latest_smartdns_url
-        wget "$DOWNLOAD_URL" -O smartdns.tar.gz
-        tar zxf smartdns.tar.gz
-        cd smartdns
-        chmod +x ./install
-        ./install -u
-        cd ..
-        rm -rf smartdns smartdns.tar.gz
-    fi
+    systemctl stop smartdns
+    systemctl disable smartdns
+    rm -f /lib/systemd/system/smartdns.service
+    rm -f /usr/sbin/smartdns
+    rm -rf /etc/smartdns
+    systemctl daemon-reload
     echo "SmartDNS 卸载完成"
 }
 
@@ -241,12 +266,10 @@ case $choice in
         install_dependencies
         ;;
     2)
-        install_dependencies
         install_smartdns
         configure_smartdns ""
         ;;
     3)
-        install_dependencies
         install_smartdns
         install_adguardhome
         configure_smartdns "adguard"
