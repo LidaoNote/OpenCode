@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>SmartDash - SmartDNS 配置</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css">
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: #f9fafb;
+        }
+        .saving-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: none;
+            background-color: #28a745;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .card {
+            border: none;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+        }
+        .card-header {
+            background-color: #e9ecef;
+            border-bottom: 1px solid #dee2e6;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            padding: 12px 16px;
+            font-weight: 600;
+            border-radius: 8px 8px 0 0;
+        }
+        .card-body {
+            padding: 16px;
+        }
+        .list-item {
+            padding: 10px 12px;
+            margin-bottom: 0;
+            transition: background-color 0.2s ease;
+        }
+        .list-item:nth-child(odd) { background-color: #f8f8f8; }
+        .list-item:nth-child(even) { background-color: #ffffff; }
+        .list-item:hover { background-color: #f0f0f0; }
+        .inline-field {
+            display: inline-block;
+            margin-right: 12px;
+            padding: 2px 0;
+        }
+        .btn-sm {
+            padding: 4px 10px;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            transition: background-color 0.2s ease, transform 0.1s ease;
+            font-size: 0.9rem;
+        }
+        .btn-sm:hover {
+            transform: translateY(-1px);
+        }
+        .btn-primary { background-color: #007bff; border-color: #007bff; }
+        .btn-primary:hover { background-color: #0056b3; border-color: #0056b3; }
+        .btn-warning { background-color: #ffc107; border-color: #ffc107; }
+        .btn-warning:hover { background-color: #e0a800; border-color: #e0a800; }
+        .btn-success, .btn-danger, .btn-info {
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            transition: background-color 0.2s ease, transform 0.1s ease;
+            font-size: 0.9rem;
+        }
+        .btn-success:hover, .btn-danger:hover, .btn-info:hover {
+            transform: translateY(-1px);
+        }
+        hr {
+            margin: 0;
+            border-color: #e9ecef;
+        }
+        .modal-content {
+            border-radius: 8px;
+            transition: transform 0.2s ease;
+        }
+        .modal.fade .modal-dialog {
+            transform: scale(0.95);
+        }
+        .modal.show .modal-dialog {
+            transform: scale(1);
+        }
+        .xzwz {
+            margin-top: 30px;
+            display: block;
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        .form-group label {
+            font-weight: 500;
+            margin-bottom: 6px;
+        }
+        .form-control {
+            border-color: #ced4da;
+            font-size: 0.9rem;
+        }
+        @media (max-width: 400px) {
+            .modal-dialog { margin: 0.5rem; }
+            .modal-content { max-height: 90vh; overflow-y: auto; }
+            .btn { padding: 0.4rem 0.8rem; }
+            .inline-field { display: block; margin-right: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1 class="mb-0">SmartDash</h1>
+            <form method="POST" action="{{ url_for('restart') }}">
+                <button type="submit" class="btn btn-warning btn-sm">重启 SmartDNS</button>
+            </form>
+        </div>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        <div id="saveIndicator" class="saving-indicator">已保存</div>
+
+        <ul class="nav nav-tabs mb-3">
+            <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#service">服务</a></li>
+            <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#cache">缓存</a></li>
+            <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#servers">上游服务器</a></li>
+            <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#domain-sets">域名组</a></li>
+        </ul>
+
+        <div class="tab-content">
+            <div class="tab-pane fade show active" id="service">
+                <form method="POST" action="{{ url_for('update_config') }}">
+                    <div class="card mb-4">
+                        <div class="card-header">服务设置</div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-sm-4">
+                                    <div class="form-group">
+                                        <label>UDP 端口</label>
+                                        <input type="number" name="bind_port" class="form-control" value="{{ config.bind.port }}" min="1" max="65535" required>
+                                    </div>
+                                </div>
+                                <div class="col-sm-4">
+                                    <div class="form-group">
+                                        <label>TCP 端口</label>
+                                        <input type="number" name="bind_tcp_port" class="form-control" value="{{ config.bind.tcp_port }}" min="1" max="65535" required>
+                                    </div>
+                                </div>
+                                <div class="col-sm-2">
+                                    <div class="form-group">
+                                        <label>全局禁用 IPv6</label>
+                                        <select name="force_aaaa_soa" class="form-control">
+                                            <option value="yes" {% if config.ipv6.force_aaaa_soa == 'yes' %}selected{% endif %}>是</option>
+                                            <option value="no" {% if config.ipv6.force_aaaa_soa == 'no' %}selected{% endif %}>否</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-sm-2">
+                                    <span class="xzwz">
+                                        <button type="submit" class="btn btn-primary">保存</button>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+                <div class="card mb-4">
+                    <div class="card-header">测试与备份</div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-sm-3">
+                                <form method="POST" action="{{ url_for('test_dns') }}">
+                                    <div class="form-group">
+                                        <label>测试域名</label>
+                                        <input type="text" name="test_domain" class="form-control" value="www.google.com" required>
+                                    </div>
+                            </div>
+                            <div class="col-sm-2">
+                                <span class="xzwz">
+                                    <button type="submit" class="btn btn-info">查询</button>
+                                </span>
+                                </form>
+                            </div>
+                            <div class="col-sm-2">
+                                <div class="form-group">
+                                    <label>备份配置</label>
+                                    <form method="POST" action="{{ url_for('backup') }}">
+                                        <button type="submit" class="btn btn-success">立即备份</button>
+                                    </form>
+                                </div>
+                            </div>
+                            <div class="col-sm-4">
+                                <form id="restoreForm" method="POST" action="{{ url_for('restore') }}">
+                                    <div class="form-group">
+                                        <label>已有的备份</label>
+                                        <select id="backupFiles" class="form-control" name="backup_file"></select>
+                                        <input type="hidden" id="selectedBackupFile" name="backup_file">
+                                    </div>
+                            </div>
+                            <div class="col-sm-1">
+                                <span class="xzwz">
+                                    <button type="submit" class="btn btn-danger">还原</button>
+                                </span>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="cache">
+                <form method="POST" action="{{ url_for('update_config') }}" id="cacheForm">
+                    <div class="card mb-4">
+                        <div class="card-header">缓存设置</div>
+                        <div class="card-body">
+                            <h6 class="mb-3">基本缓存设置</h6>
+                            <div class="row">
+                                <div class="col-sm-3">
+                                    <div class="form-group">
+                                        <label>启用缓存</label>
+                                        <select name="cache_enabled" id="cacheEnabled" class="form-control">
+                                            <option value="yes" {% if config.cache.enabled == 'yes' %}selected{% endif %}>是</option>
+                                            <option value="no" {% if config.cache.enabled == 'no' %}selected{% endif %}>否</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-sm-3">
+                                    <div class="form-group">
+                                        <label>缓存记录数</label>
+                                        <input type="number" name="cache_size" id="cacheSize" class="form-control" value="{{ config.cache.size }}" min="1" required>
+                                    </div>
+                                </div>
+                                <div class="col-sm-3">
+                                    <div class="form-group">
+                                        <label>缓存持久化</label>
+                                        <select name="cache_persist" id="cachePersist" class="form-control">
+                                            <option value="yes" {% if config.cache.persist == 'yes' %}selected{% endif %}>是</option>
+                                            <option value="no" {% if config.cache.persist == 'no' %}selected{% endif %}>否</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <h6 class="mt-4 mb-3">乐观缓存设置</h6>
+                            <div class="row">
+                                <div class="col-sm-3">
+                                    <div class="form-group">
+                                        <label>启用乐观缓存</label>
+                                        <select name="expired_enabled" class="form-control">
+                                            <option value="yes" {% if config.expired.enabled == 'yes' %}selected{% endif %}>是</option>
+                                            <option value="no" {% if config.expired.enabled == 'no' %}selected{% endif %}>否</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-sm-3">
+                                    <div class="form-group">
+                                        <label>缓存 TTL（秒）</label>
+                                        <input type="number" name="expired_ttl" id="expired_ttl" class="form-control" value="{{ config.expired.ttl }}" min="0" required>
+                                    </div>
+                                </div>
+                                <div class="col-sm-3">
+                                    <div class="form-group">
+                                        <label>回复 TTL（秒）</label>
+                                        <input type="number" name="expired_reply_ttl" id="expired_reply_ttl" class="form-control" value="{{ config.expired.reply_ttl }}" min="0" required>
+                                    </div>
+                                </div>
+                                <div class="col-sm-3">
+                                    <div class="form-group">
+                                        <label>预获取时间（秒）</label>
+                                        <input type="number" name="expired_prefetch_time" id="expired_prefetch_time" class="form-control" value="{{ config.expired.prefetch_time }}" min="0" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary mt-3">保存</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <div class="tab-pane fade" id="servers">
+                <div class="card mb-4">
+                    <div class="card-header">上游服务器</div>
+                    <div class="card-body">
+                        <ul class="list-unstyled">
+                            {% for server in config.servers %}
+                                <li class="list-item" data-index="{{ loop.index0 }}">
+                                    <span class="inline-field"><strong>类型:</strong> {{ {'server': 'UDP', 'server-tls': 'TLS', 'server-https': 'HTTPS'}[server.type] }}</span>
+                                    <span class="inline-field"><strong>组别:</strong> {{ server.group }}</span>
+                                    <span class="inline-field"><strong>地址:</strong> {{ server.addresses | join(', ') }}</span>
+                                    <span class="inline-field">
+                                        <button class="btn btn-primary btn-sm edit-server-btn" data-index="{{ loop.index0 }}">编辑</button>
+                                        <a href="{{ url_for('delete_server', index=loop.index0) }}" class="btn btn-danger btn-sm">删除</a>
+                                    </span>
+                                </li>
+                                <hr>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+                <form method="POST" action="{{ url_for('add_server') }}">
+                    <div class="card mb-4">
+                        <div class="card-header">添加上游服务器</div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-sm-3">
+                                    <div class="form-group">
+                                        <label>服务器地址</label>
+                                        <input type="text" name="server_address" class="form-control" placeholder="如 8.8.8.8:53" required>
+                                    </div>
+                                </div>
+                                <div class="col-sm-3">
+                                    <div class="form-group">
+                                        <label>组别</label>
+                                        <input type="text" name="server_group" class="form-control" value="通用">
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary mt-3">添加</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <div class="tab-pane fade" id="domain-sets">
+                <div class="card mb-4">
+                    <div class="card-header">域名组</div>
+                    <div class="card-body">
+                        <ul class="list-unstyled">
+                            {% for domain_set in config.domain_sets %}
+                                <li class="list-item" data-index="{{ loop.index0 }}">
+                                    <span class="inline-field"><strong>名称:</strong> {{ domain_set.friendly_name }}</span>
+                                    <span class="inline-field"><strong>条数:</strong> {{ domain_set.domain_count }}</span>
+                                    <span class="inline-field"><strong>测速:</strong> {{ domain_set.speed_check_mode | capitalize }}</span>
+                                    <span class="inline-field"><strong>响应:</strong> {{ domain_set.response_mode | capitalize }}</span>
+                                    <span class="inline-field"><strong>IPv6:</strong> {{ '启用' if domain_set.address_ipv6 else '禁用' }}</span>
+                                    <span class="inline-field">
+                                        <button class="btn btn-primary btn-sm edit-content-btn" data-index="{{ loop.index0 }}">编辑</button>
+                                        <a href="{{ url_for('delete_domain_set', index=loop.index0) }}" class="btn btn-danger btn-sm">删除</a>
+                                        <button class="btn btn-info btn-sm update-content-btn" data-index="{{ loop.index0 }}">更新</button>
+                                    </span>
+                                </li>
+                                <hr>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+                <form method="POST" action="{{ url_for('add_domain_set') }}">
+                    <div class="card mb-4">
+                        <div class="card-header">添加域名组</div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-sm-3 mb-2">
+                                    <div class="form-group">
+                                        <label>名称</label>
+                                        <input type="text" name="friendly_name" class="form-control" required>
+                                    </div>
+                                </div>
+                                <div class="col-sm-9">
+                                    <div class="form-group">
+                                        <label>源 URL</label>
+                                        <input type="text" name="source_url" class="form-control" placeholder="如 https://example.com/domains.txt">
+                                    </div>
+                                </div>
+                                <div class="col-sm-4">
+                                    <div class="form-group">
+                                        <label>测速模式</label>
+                                        <select name="speed_check_mode" class="form-control">
+                                            <option value="ping">Ping</option>
+                                            <option value="tcp:80">TCP:80</option>
+                                            <option value="tcp:443">TCP:443</option>
+                                            <option value="none">None</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-sm-4">
+                                    <div class="form-group">
+                                        <label>响应模式</label>
+                                        <select name="response_mode" class="form-control">
+                                            <option value="fastest">Fastest</option>
+                                            <option value="first-ping">First-Ping</option>
+                                            <option value="none">None</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-sm-4">
+                                    <div class="form-group">
+                                        <label>启用 IPv6</label>
+                                        <select name="address_ipv6" class="form-control">
+                                            <option value="no">不启用</option>
+                                            <option value="yes">启用</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary mt-3">添加</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="editModalLabel">编辑</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">×</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" id="editIndex">
+                        <input type="hidden" id="editType">
+                        <div id="modalContent"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
+                        <button type="button" class="btn btn-primary" id="saveEdit">保存</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const baseUrl = window.location.origin;
+
+            function sanitizeInput(input) {
+                return String(input).replace(/[<>&"]/g, c => ({'<': '<', '>': '>', '&': '&', '"': '"'}[c]));
+            }
+
+            function showSaveIndicator() {
+                const indicator = document.getElementById('saveIndicator');
+                if (indicator) {
+                    indicator.style.display = 'block';
+                    setTimeout(() => indicator.style.display = 'none', 2000);
+                }
+            }
+
+            // 缓存设置
+            function toggleCacheInputs() {
+                const cacheEnabled = document.getElementById('cacheEnabled');
+                if (!cacheEnabled) return;
+                const inputs = ['cacheSize', 'cachePersist', 'expired_ttl', 'expired_reply_ttl', 'expired_prefetch_time'];
+                inputs.forEach(id => {
+                    const input = document.getElementById(id);
+                    if (input) input.disabled = cacheEnabled.value === 'no';
+                });
+            }
+            toggleCacheInputs();
+            const cacheEnabled = document.getElementById('cacheEnabled');
+            if (cacheEnabled) cacheEnabled.addEventListener('change', toggleCacheInputs);
+
+            // 通用编辑模态框
+            document.querySelector('.tab-content').addEventListener('click', function(e) {
+                if (e.target.classList.contains('edit-content-btn') || e.target.classList.contains('update-content-btn') || e.target.classList.contains('edit-server-btn')) {
+                    e.preventDefault();
+                    const index = parseInt(e.target.getAttribute('data-index'));
+                    const domainSets = {{ config.domain_sets | tojson | safe }};
+                    const servers = {{ config.servers | tojson | safe }};
+                    const modalContent = document.getElementById('modalContent');
+                    const editIndex = document.getElementById('editIndex');
+                    const editType = document.getElementById('editType');
+                    if (!modalContent || !editIndex || !editType) {
+                        alert('无法加载模态框：缺少 DOM 元素');
+                        return;
+                    }
+
+                    if (e.target.classList.contains('edit-content-btn')) {
+                        if (!domainSets || !Array.isArray(domainSets) || index < 0 || index >= domainSets.length) {
+                            alert('无法加载域名组数据');
+                            return;
+                        }
+                        const domainSet = domainSets[index];
+                        if (!domainSet) {
+                            alert('域名组数据为空');
+                            return;
+                        }
+                        editIndex.value = index;
+                        editType.value = 'domain';
+                        document.getElementById('editModalLabel').textContent = '编辑域名组';
+                        const domainCount = parseInt(domainSet.domain_count) || 0;
+                        let contentField = '';
+                        if (domainCount > 1000) {
+                            contentField = `<div class="alert alert-warning">域名表太大，请直接编辑文件，路径：<br />${sanitizeInput(domainSet.file || '未知')}</div>`;
+                        } else {
+                            contentField = '<label>文件内容</label><textarea id="modalContentField" class="form-control" rows="5"></textarea>';
+                        }
+                        modalContent.innerHTML = `
+                            <div class="form-group">
+                                <label>名称</label>
+                                <input type="text" id="modalFriendlyName" class="form-control" value="${sanitizeInput(domainSet.friendly_name || '')}">
+                            </div>
+                            <div class="form-group">
+                                <label>源 URL</label>
+                                <input type="text" id="modalSourceUrl" class="form-control" value="${sanitizeInput(domainSet.source_url || '')}">
+                            </div>
+                            <div class="form-group">
+                                <label>测速模式</label>
+                                <select id="modalSpeedCheckMode" class="form-control">
+                                    <option value="ping" ${domainSet.speed_check_mode === 'ping' ? 'selected' : ''}>Ping</option>
+                                    <option value="tcp:80" ${domainSet.speed_check_mode === 'tcp:80' ? 'selected' : ''}>TCP:80</option>
+                                    <option value="tcp:443" ${domainSet.speed_check_mode === 'tcp:443' ? 'selected' : ''}>TCP:443</option>
+                                    <option value="none" ${domainSet.speed_check_mode === 'none' ? 'selected' : ''}>None</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>响应模式</label>
+                                <select id="modalResponseMode" class="form-control">
+                                    <option value="fastest" ${domainSet.response_mode === 'fastest' ? 'selected' : ''}>Fastest</option>
+                                    <option value="first-ping" ${domainSet.response_mode === 'first-ping' ? 'selected' : ''}>First-Ping</option>
+                                    <option value="none" ${domainSet.response_mode === 'none' ? 'selected' : ''}>None</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>启用 IPv6</label>
+                                <select id="modalAddressIpv6" class="form-control">
+                                    <option value="no" ${!domainSet.address_ipv6 ? 'selected' : ''}>不启用</option>
+                                    <option value="yes" ${domainSet.address_ipv6 ? 'selected' : ''}>启用</option>
+                                </select>
+                            </div>
+                            ${contentField}
+                        `;
+                        if (domainCount <= 1000) {
+                            fetch(`${baseUrl}/get_domain_content/${index}`)
+                                .then(response => response.json())
+                                .then(data => {
+                                    if (data.status === 'success') {
+                                        const contentField = document.getElementById('modalContentField');
+                                        if (contentField) contentField.value = data.content || '';
+                                    } else {
+                                        modalContent.innerHTML += `<div class="alert alert-danger">${sanitizeInput(data.message)}</div>`;
+                                    }
+                                })
+                                .catch(error => {
+                                    modalContent.innerHTML += `<div class="alert alert-danger">无法加载内容：${sanitizeInput(error.message)}</div>`;
+                                });
+                        }
+                    } else if (e.target.classList.contains('update-content-btn')) {
+                        if (!domainSets || !Array.isArray(domainSets) || index < 0 || index >= domainSets.length) {
+                            alert('无法加载域名组数据');
+                            return;
+                        }
+                        const domainSet = domainSets[index];
+                        if (!domainSet) {
+                            alert('域名组数据为空');
+                            return;
+                        }
+                        editIndex.value = index;
+                        editType.value = 'update';
+                        document.getElementById('editModalLabel').textContent = '更新域名组';
+                        modalContent.innerHTML = `
+                            <div class="form-group">
+                                <label>源 URL</label>
+                                <input type="text" id="modalDefaultUrl" class="form-control" value="${sanitizeInput(domainSet.source_url || '')}" readonly>
+                            </div>
+                            <div class="form-group">
+                                <label>临时 URL</label>
+                                <input type="text" id="modalTempUrl" class="form-control" placeholder="如 https://example.com/domains.txt">
+                            </div>
+                        `;
+                    } else if (e.target.classList.contains('edit-server-btn')) {
+                        if (!servers || !Array.isArray(servers) || index < 0 || index >= servers.length) {
+                            alert('无法加载服务器数据');
+                            return;
+                        }
+                        const server = servers[index];
+                        if (!server) {
+                            alert('服务器数据为空');
+                            return;
+                        }
+                        editIndex.value = index;
+                        editType.value = 'server';
+                        document.getElementById('editModalLabel').textContent = '编辑服务器';
+                        modalContent.innerHTML = `
+                            <div class="form-group">
+                                <label>地址（每行一个）</label>
+                                <textarea id="modalServerAddresses" class="form-control" rows="3">${sanitizeInput(server.addresses.join('\n'))}</textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>组别</label>
+                                <input type="text" id="modalServerGroup" class="form-control" value="${sanitizeInput(server.group)}">
+                            </div>
+                        `;
+                    }
+                    $('#editModal').modal('show');
+                }
+            });
+
+            // 保存编辑
+            const saveEditBtn = document.getElementById('saveEdit');
+            if (saveEditBtn) {
+                saveEditBtn.addEventListener('click', function() {
+                    const editIndex = document.getElementById('editIndex');
+                    const editType = document.getElementById('editType');
+                    if (!editIndex || !editType) return;
+
+                    const index = editIndex.value;
+                    const type = editType.value;
+                    let url, body;
+
+                    if (type === 'domain') {
+                        const friendlyName = document.getElementById('modalFriendlyName');
+                        const sourceUrl = document.getElementById('modalSourceUrl');
+                        const contentField = document.getElementById('modalContentField');
+                        const speedCheckMode = document.getElementById('modalSpeedCheckMode');
+                        const responseMode = document.getElementById('modalResponseMode');
+                        const addressIpv6 = document.getElementById('modalAddressIpv6');
+                        if (!friendlyName || !sourceUrl || !speedCheckMode || !responseMode || !addressIpv6) return;
+                        body = `friendly_name=${encodeURIComponent(friendlyName.value)}&source_url=${encodeURIComponent(sourceUrl.value)}&content=${encodeURIComponent(contentField ? contentField.value : '')}&speed_check_mode=${encodeURIComponent(speedCheckMode.value)}&response_mode=${encodeURIComponent(responseMode.value)}&address_ipv6=${encodeURIComponent(addressIpv6.value)}`;
+                        url = `${baseUrl}/update_domain_set/${index}`;
+                    } else if (type === 'update') {
+                        const tempUrl = document.getElementById('modalTempUrl');
+                        const defaultUrl = document.getElementById('modalDefaultUrl');
+                        if (!tempUrl || !defaultUrl) return;
+                        body = `url=${encodeURIComponent(tempUrl.value || defaultUrl.value)}`;
+                        url = `${baseUrl}/update_domain_content/${index}`;
+                    } else if (type === 'server') {
+                        const addresses = document.getElementById('modalServerAddresses');
+                        const group = document.getElementById('modalServerGroup');
+                        if (!addresses || !group) return;
+                        const addrList = addresses.value.split('\n').map(addr => addr.trim()).filter(addr => addr);
+                        body = `addresses=${encodeURIComponent(addrList.join(','))}&group=${encodeURIComponent(group.value)}`;
+                        url = `${baseUrl}/update_server/${index}`;
+                    }
+
+                    fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: body
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            showSaveIndicator();
+                            $('#editModal').modal('hide');
+                            location.reload();
+                        } else {
+                            alert('保存失败: ' + data.message);
+                        }
+                    })
+                    .catch(error => alert('保存出错: ' + error.message));
+                });
+            }
+
+            // 备份列表
+            function loadBackups() {
+                fetch(`${baseUrl}/backups`)
+                    .then(response => response.json())
+                    .then(data => {
+                        const select = document.getElementById('backupFiles');
+                        if (!select) return;
+                        select.innerHTML = '';
+                        if (data.status === 'success' && data.backups.length) {
+                            data.backups.forEach(file => {
+                                const option = document.createElement('option');
+                                option.value = file;
+                                option.text = file;
+                                select.appendChild(option);
+                            });
+                        } else {
+                            const option = document.createElement('option');
+                            option.text = '无可用备份';
+                            option.disabled = true;
+                            select.appendChild(option);
+                        }
+                    })
+                    .catch(error => alert('获取备份列表出错: ' + error.message));
+            }
+            loadBackups();
+            const backupForm = document.querySelector('form[action="{{ url_for('backup') }}"]');
+            if (backupForm) backupForm.addEventListener('submit', () => setTimeout(loadBackups, 1000));
+            const restoreForm = document.getElementById('restoreForm');
+            if (restoreForm) {
+                restoreForm.addEventListener('submit', function(e) {
+                    const select = document.getElementById('backupFiles');
+                    if (!select || !select.value || select.value === '无可用备份') {
+                        e.preventDefault();
+                        alert('请选择有效备份文件');
+                    } else {
+                        document.getElementById('selectedBackupFile').value = select.value;
+                        if (!confirm(`确认还原配置 ${select.value} 吗？`)) e.preventDefault();
+                    }
+                });
+            }
+        });
+    </script>
+    <!-- Cloudflare 挑战脚本（保留，若不需要可移除） -->
+    <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'932923fdec8dbf77',t:'MTc0NTAzMTUxMC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script>
+</body>
+</html>
