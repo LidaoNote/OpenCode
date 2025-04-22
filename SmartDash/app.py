@@ -479,7 +479,7 @@ def test_dns_resolution(domain="www.google.com"):
     try:
         result = subprocess.run(['nslookup', domain, '127.0.0.1'], capture_output=True, text=True, timeout=5)
         output = result.stdout
-        logger.info(f"{domain} 的 nslookup 输出:\n{output}")
+        logger.info(f"DNS 测试输出已获取")
         ip_addresses = []
         found_answer_section = False
         for line in output.splitlines():
@@ -492,12 +492,13 @@ def test_dns_resolution(domain="www.google.com"):
                 if ip != "127.0.0.1" and "#53" not in ip:
                     ip_addresses.append(ip)
         if ip_addresses:
-            return True, f"DNS 解析成功: {domain} -> {', '.join(ip_addresses)}"
+            # 使用 "to" 替代 "->"，避免 HTML 转义问题
+            return True, f"DNS 解析成功: {domain} to {', '.join(ip_addresses)}"
         return False, f"DNS 解析失败: 没有有效结果\n{output}"
     except subprocess.TimeoutExpired:
         return False, "DNS 解析失败: 请求超时"
     except Exception as e:
-        logger.error(f"对 {domain} 执行 nslookup 出错: {str(e)}")
+        logger.error(f"DNS 测试出错: {str(e)}")
         return False, f"DNS 解析失败: {str(e)}"
 
 @app.route('/')
