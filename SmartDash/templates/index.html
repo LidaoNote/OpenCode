@@ -499,10 +499,12 @@
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                    showNotification("{{ message }}", "{{ category }}");
+                    // 使用原始消息，不通过 DOMPurify.sanitize 额外转义
+                    showNotification("{{ message | safe }}", "{{ category }}");
                 {% endfor %}
             {% endif %}
         {% endwith %}
+
 
         // 其他函数保持不变
         function toggleCacheInputs() {
