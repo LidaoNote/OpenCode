@@ -9,6 +9,9 @@ import dns.resolver
 import time
 import subprocess
 from datetime import datetime
+import threading
+import logging
+import re
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key'
@@ -24,6 +27,36 @@ BASE_CONFIG_PATH = '/etc/smartdns/'
 # 确保备份目录存在
 if not os.path.exists(CONFIG_BACKUP_DIR):
     os.makedirs(CONFIG_BACKUP_DIR)
+
+# 设置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# 用于记录任务上次执行时间的字典，避免重复执行
+last_execution_times = {}
+
+def validate_domains(content):
+    """验证内容是否包含有效的域名，支持顶级域名和国际化域名（Punycode）"""
+    # 支持顶级域名（如 cn、com）、子域名和 Punycode 编码的国际化域名
+    domain_pattern = re.compile(
+        r'^(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+)?'
+        r'(?:[a-zA-Z]{2,}|xn--[a-zA-Z0-9-]{2,})$',
+        re.IGNORECASE
+    )
+    lines = content.splitlines()
+    valid_domains = 0
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        if domain_pattern.match(line):
+            valid_domains += 1
+        else:
+            logger.warning(f"无效的域名: {line}")
+            return False, f"无效的域名: {line}"
+    if valid_domains == 0:
+        return False, "没有有效的域名"
+    return True, "验证通过"
 
 def generate_domain_filename(friendly_name):
     """生成标准化的域名组文件名"""
@@ -63,7 +96,7 @@ def read_config():
     
     try:
         if not os.path.exists(CONFIG_FILE):
-            print(f"Config file {CONFIG_FILE} does not exist")
+            logger.warning(f"配置文件 {CONFIG_FILE} 不存在")
             return config
 
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
@@ -129,12 +162,24 @@ def read_config():
                             'domain_count': 0,
                             'speed_check_mode': 'ping',
                             'response_mode': 'fastest',
-                            'address_ipv6': False
+                            'address_ipv6': False,
+                            'update_schedule': {'frequency': 'none', 'time': '', 'day': ''}  # 确保默认值
                         }
-                        if i + 1 < len(lines) and lines[i + 1].strip().startswith('# Source ='):
-                            domain_set_info['source_url'] = lines[i + 1].strip().replace('# Source =', '').strip()
-                            i += 1
-                        # 解析 domain-rules
+                        while i + 1 < len(lines):
+                            next_line = lines[i + 1].strip()
+                            if next_line.startswith('# Source ='):
+                                domain_set_info['source_url'] = next_line.replace('# Source =', '').strip()
+                                i += 1
+                            elif next_line.startswith('# Update-Schedule ='):
+                                schedule_info = next_line.replace('# Update-Schedule =', '').strip().split(',')
+                                if len(schedule_info) >= 2:
+                                    domain_set_info['update_schedule']['frequency'] = schedule_info[0].strip()
+                                    domain_set_info['update_schedule']['time'] = schedule_info[1].strip()
+                                    if len(schedule_info) > 2:
+                                        domain_set_info['update_schedule']['day'] = schedule_info[2].strip()
+                                i += 1
+                            else:
+                                break
                         while i + 1 < len(lines):
                             next_line = lines[i + 1].strip()
                             if not next_line.startswith('domain-rules'):
@@ -150,7 +195,6 @@ def read_config():
                             i += 1
                         try:
                             if os.path.exists(domain_set_info['file']):
-                                # 只计算 domain_count，不加载 content
                                 domain_count = 0
                                 with open(domain_set_info['file'], 'r', encoding='utf-8') as df:
                                     for line in df:
@@ -163,13 +207,12 @@ def read_config():
                                 domain_set_info['last_updated'] = '文件不存在'
                                 domain_set_info['domain_count'] = 0
                         except Exception as e:
-                            print(f"Error reading domain file {domain_set_info['file']}: {str(e)}")
+                            logger.error(f"读取域名文件 {domain_set_info['file']} 出错: {str(e)}")
                             domain_set_info['last_updated'] = '读取失败'
                             domain_set_info['domain_count'] = 0
                         config['domain_sets'].append(domain_set_info)
                 i += 1
 
-            # 合并同一组和类型的服务器
             server_dict = {}
             for server in raw_servers:
                 key = (server['group'], server['type'])
@@ -183,7 +226,7 @@ def read_config():
             
             config['servers'] = list(server_dict.values())
     except Exception as e:
-        print(f"Error reading config file: {str(e)}")
+        logger.error(f"读取配置文件出错: {str(e)}")
     
     return config
 
@@ -226,6 +269,12 @@ def write_config(config):
                 f.write(f"domain-set -name {domain_set['name']} -file {domain_set['file']}\n")
                 if domain_set.get('source_url'):
                     f.write(f"# Source = {domain_set['source_url']}\n")
+                schedule = domain_set.get('update_schedule', {})
+                if schedule.get('frequency') != 'none':
+                    schedule_str = f"{schedule['frequency']},{schedule['time']}"
+                    if schedule['frequency'] == 'weekly' and schedule.get('day'):
+                        schedule_str += f",{schedule['day']}"
+                    f.write(f"# Update-Schedule = {schedule_str}\n")
                 rule = f"domain-rules /domain-set:{domain_set['name']}/ -c none -nameserver {domain_set['group']}"
                 if domain_set['speed_check_mode'] != 'none':
                     rule += f" -speed-check-mode {domain_set['speed_check_mode']}"
@@ -235,8 +284,145 @@ def write_config(config):
                     rule += f" -address -6"
                 f.write(f"{rule}\n")
     except Exception as e:
-        print(f"Error writing config file: {str(e)}")
+        logger.error(f"写入配置文件出错: {str(e)}")
         raise
+
+def update_domain_content_by_index(index, url, restart=True):
+    """更新指定域名组的内容"""
+    try:
+        config = read_config()
+        if 0 <= index < len(config['domain_sets']):
+            session = requests.Session()
+            retries = Retry(total=5, backoff_factor=2, status_forcelist=[502, 503, 504, 403, 429])
+            session.mount('https://', HTTPAdapter(max_retries=retries))
+            domain = url.split('/')[2] if '//' in url else url.split('/')[0]
+            ip = resolve_domain_with_local_dns(domain)
+            response = None
+            if ip:
+                logger.info(f"解析 {domain} 到 {ip}")
+                try:
+                    if '//' in url:
+                        parts = url.split('//')
+                        path = parts[1].split('/', 1)[1] if len(parts[1].split('/')) > 1 else ''
+                        new_url = f"{parts[0]}//{ip}/{path}"
+                    else:
+                        path = url.split('/', 1)[1] if len(url.split('/')) > 1 else ''
+                        new_url = f"{ip}/{path}"
+                    headers = {'Host': domain}
+                    response = session.get(new_url, timeout=30, headers=headers, verify=False)
+                    if response.status_code == 200:
+                        logger.info(f"从 IP {ip} 成功获取内容")
+                    else:
+                        logger.warning(f"IP 请求失败，状态码 {response.status_code}，回退到域名")
+                        response = None
+                except Exception as ip_error:
+                    logger.error(f"IP 请求失败: {str(ip_error)}，回退到域名")
+            if not response or response.status_code != 200:
+                response = session.get(url, timeout=30)
+            if response.status_code == 200:
+                content = response.text
+                is_valid, validation_message = validate_domains(content)
+                if not is_valid:
+                    logger.error(f"域名验证失败: {validation_message}")
+                    return False, validation_message, False
+                try:
+                    with open(config['domain_sets'][index]['file'], 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    mtime = os.path.getmtime(config['domain_sets'][index]['file'])
+                    config['domain_sets'][index]['last_updated'] = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+                    config['domain_sets'][index]['domain_count'] = len([line for line in content.splitlines() if line.strip() and not line.startswith('#')])
+                    write_config(config)
+                    restarted = False
+                    restart_message = ""
+                    if restart:
+                        def delayed_restart():
+                            time.sleep(1)
+                            success, restart_message = restart_service()
+                            if not success:
+                                logger.error(f"服务重启失败: {restart_message}")
+                        threading.Thread(target=delayed_restart, daemon=True).start()
+                        restarted = True
+                    logger.info(f"成功更新域名组 {config['domain_sets'][index]['name']}")
+                    return True, "更新成功", restarted
+                except Exception as e:
+                    logger.error(f"保存文件内容出错: {str(e)}")
+                    return False, f"保存文件内容出错：{str(e)}", False
+            else:
+                logger.error(f"从 URL 获取内容失败，状态码: {response.status_code}")
+                return False, f"从URL获取内容失败，状态码：{response.status_code}", False
+        else:
+            logger.error("无效的域名组索引")
+            return False, "无效的域名组索引", False
+    except Exception as e:
+        logger.error(f"更新内容出错: {str(e)}")
+        return False, f"更新内容出错: {str(e)}", False
+
+def matches_current_time(schedule_info):
+    """检查当前时间是否匹配设置的更新时间"""
+    current_time = datetime.now()
+    current_hour_minute = current_time.strftime("%H:%M")
+    current_day = current_time.strftime("%A").lower()  # 如 'monday'
+
+    frequency = schedule_info.get('frequency', 'none')
+    set_time = schedule_info.get('time', '')
+    set_day = schedule_info.get('day', '').lower()
+
+    if frequency == 'none' or not set_time:
+        return False
+
+    # 检查时间是否匹配
+    if current_hour_minute != set_time:
+        return False
+
+    # 对于每周频率，额外检查星期几
+    if frequency == 'weekly' and set_day:
+        if current_day != set_day:
+            return False
+
+    return True
+
+def run_custom_scheduler():
+    """自定义调度器，每分钟检查当前时间与设置时间的一致性"""
+    logger.info("自定义调度器线程启动")
+    while True:
+        try:
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            config = read_config()
+            for index, domain_set in enumerate(config['domain_sets']):
+                schedule_info = domain_set.get('update_schedule', {})
+                source_url = domain_set.get('source_url', '')
+                name = domain_set.get('name', '未知')
+
+                if schedule_info.get('frequency', 'none') == 'none' or not source_url:
+                    continue
+
+                # 检查当前时间是否匹配设置时间
+                if matches_current_time(schedule_info):
+                    # 检查是否已在本周期内执行过
+                    last_exec_key = f"{name}_{schedule_info['frequency']}_{schedule_info.get('day', '')}"
+                    last_exec_time = last_execution_times.get(last_exec_key)
+                    current_day = datetime.now().strftime("%Y-%m-%d")
+                    if last_exec_time and last_exec_time.startswith(current_day):
+                        logger.info(f"任务 {name} 今天已执行，跳过")
+                        continue
+
+                    logger.info(f"时间匹配，执行更新任务 for {name} at {current_time}")
+                    success, message, restarted = update_domain_content_by_index(index, source_url)
+                    if success:
+                        logger.info(f"更新任务 {name} 成功: {message}")
+                        last_execution_times[last_exec_key] = current_time
+                    else:
+                        logger.error(f"更新任务 {name} 失败: {message}")
+                #else:
+                #    logger.debug(f"时间不匹配 for {name}: 当前 {current_time}, 设置 {schedule_info}")
+            time.sleep(30)  # 每半分钟检查一次
+        except Exception as e:
+            logger.error(f"自定义调度器出错: {str(e)}")
+            time.sleep(30)
+
+# 启动自定义调度器线程
+scheduler_thread = threading.Thread(target=run_custom_scheduler, daemon=True)
+scheduler_thread.start()
 
 def resolve_domain_with_local_dns(domain):
     """通过本机DNS解析域名"""
@@ -244,12 +430,12 @@ def resolve_domain_with_local_dns(domain):
         resolver = dns.resolver.Resolver()
         resolver.nameservers = ['127.0.0.1']
         resolver.port = 53
-        print(f"Resolving {domain} using 127.0.0.1:53")
+        logger.info(f"使用 127.0.0.1:53 解析 {domain}")
         answers = resolver.resolve(domain, 'A')
         if answers:
             return answers[0].address
     except Exception as e:
-        print(f"Error resolving domain {domain}: {str(e)}")
+        logger.error(f"解析域名 {domain} 出错: {str(e)}")
     return None
 
 def restart_service():
@@ -276,7 +462,13 @@ def restore_config(backup_file):
         backup_path = os.path.join(CONFIG_BACKUP_DIR, backup_file)
         if os.path.exists(backup_path):
             shutil.copy2(backup_path, CONFIG_FILE)
-            return True, "配置还原成功"
+            def delayed_restart():
+                time.sleep(1)
+                success, restart_message = restart_service()
+                if not success:
+                    logger.error(f"服务重启失败: {restart_message}")
+            threading.Thread(target=delayed_restart, daemon=True).start()
+            return True, "配置还原成功，服务正在重启"
         else:
             return False, "备份文件不存在"
     except Exception as e:
@@ -287,7 +479,7 @@ def test_dns_resolution(domain="www.google.com"):
     try:
         result = subprocess.run(['nslookup', domain, '127.0.0.1'], capture_output=True, text=True, timeout=5)
         output = result.stdout
-        print(f"nslookup output for {domain}:\n{output}")
+        logger.info(f"{domain} 的 nslookup 输出:\n{output}")
         ip_addresses = []
         found_answer_section = False
         for line in output.splitlines():
@@ -305,7 +497,7 @@ def test_dns_resolution(domain="www.google.com"):
     except subprocess.TimeoutExpired:
         return False, "DNS 解析失败: 请求超时"
     except Exception as e:
-        print(f"Error during nslookup for {domain}: {str(e)}")
+        logger.error(f"对 {domain} 执行 nslookup 出错: {str(e)}")
         return False, f"DNS 解析失败: {str(e)}"
 
 @app.route('/')
@@ -350,9 +542,15 @@ def update_config():
         config['expired']['prefetch_time'] = request.form.get('expired_prefetch_time', '1200')
         config['ipv6']['force_aaaa_soa'] = request.form.get('force_aaaa_soa', 'yes')
         write_config(config)
-        flash('配置更新成功！', 'success')
+        def delayed_restart():
+            time.sleep(1)
+            success, restart_message = restart_service()
+            if not success:
+                logger.error(f"服务重启失败: {restart_message}")
+        threading.Thread(target=delayed_restart, daemon=True).start()
+        flash('配置更新成功，SmartDNS 服务已重启！', 'success')
     except Exception as e:
-        flash(f'更新配置出错：{str(e)}', 'danger')
+        flash(f'更新配置出错：{str(e)}', 'success')
     return redirect(url_for('index'))
 
 @app.route('/add_server', methods=['POST'])
@@ -374,11 +572,17 @@ def add_server():
                     'addresses': [server_address]
                 })
             write_config(config)
-            flash('服务器添加成功！', 'success')
+            def delayed_restart():
+                time.sleep(1)
+                success, restart_message = restart_service()
+                if not success:
+                    logger.error(f"服务重启失败: {restart_message}")
+            threading.Thread(target=delayed_restart, daemon=True).start()
+            flash('服务器添加成功，SmartDNS 服务已重启！', 'success')
         else:
-            flash('服务器地址不能为空！', 'danger')
+            flash('服务器地址不能为空！', 'success')
     except Exception as e:
-        flash(f'添加服务器出错：{str(e)}', 'danger')
+        flash(f'添加服务器出错：{str(e)}', 'success')
     return redirect(url_for('index'))
 
 @app.route('/delete_server/<int:index>')
@@ -388,11 +592,17 @@ def delete_server(index):
         if 0 <= index < len(config['servers']):
             config['servers'].pop(index)
             write_config(config)
-            flash('服务器删除成功！', 'success')
+            def delayed_restart():
+                time.sleep(1)
+                success, restart_message = restart_service()
+                if not success:
+                    logger.error(f"服务重启失败: {restart_message}")
+            threading.Thread(target=delayed_restart, daemon=True).start()
+            flash('服务器删除成功，SmartDNS 服务已重启！', 'success')
         else:
-            flash('无效的服务器索引！', 'danger')
+            flash('无效的服务器索引！', 'success')
     except Exception as e:
-        flash(f'删除服务器出错：{str(e)}', 'danger')
+        flash(f'删除服务器出错：{str(e)}', 'success')
     return redirect(url_for('index'))
 
 @app.route('/update_server/<int:index>', methods=['POST'])
@@ -404,7 +614,7 @@ def update_server(index):
             addresses = [addr.strip() for addr in addresses if addr.strip()]
             group = request.form.get('group', '通用')
             if not addresses:
-                return jsonify({'status': 'error', 'message': '服务器地址不能为空'})
+                return jsonify({'status': 'error', 'message': '服务器地址不能为空', 'restarted': False})
             server_type = infer_server_type(addresses[0])
             config['servers'][index] = {
                 'type': server_type,
@@ -412,11 +622,17 @@ def update_server(index):
                 'addresses': addresses
             }
             write_config(config)
-            return jsonify({'status': 'success', 'message': '已保存'})
+            def delayed_restart():
+                time.sleep(1)
+                success, restart_message = restart_service()
+                if not success:
+                    logger.error(f"服务重启失败: {restart_message}")
+            threading.Thread(target=delayed_restart, daemon=True).start()
+            return jsonify({'status': 'success', 'message': '已保存，服务正在重启', 'restarted': True})
         else:
-            return jsonify({'status': 'error', 'message': '无效的服务器索引'})
+            return jsonify({'status': 'error', 'message': '无效的服务器索引', 'restarted': False})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': f'更新服务器出错: {str(e)}'})
+        return jsonify({'status': 'error', 'message': f'更新服务器出错: {str(e)}', 'restarted': False})
 
 @app.route('/add_domain_set', methods=['POST'])
 def add_domain_set():
@@ -427,10 +643,13 @@ def add_domain_set():
         speed_check_mode = request.form.get('speed_check_mode', 'ping')
         response_mode = request.form.get('response_mode', 'fastest')
         address_ipv6 = request.form.get('address_ipv6', 'no') == 'yes'
+        update_frequency = request.form.get('update_frequency', 'none')
+        update_time = request.form.get('update_time', '')
+        update_day = request.form.get('update_day', '')
         if friendly_name:
             name = f"{friendly_name.lower().replace(' ', '-')}-domain-list"
             file_path = generate_domain_filename(friendly_name)
-            config['domain_sets'].append({
+            domain_set = {
                 'name': name,
                 'friendly_name': friendly_name,
                 'file': file_path,
@@ -440,14 +659,26 @@ def add_domain_set():
                 'last_updated': '尚未更新',
                 'speed_check_mode': speed_check_mode,
                 'response_mode': response_mode,
-                'address_ipv6': address_ipv6
-            })
+                'address_ipv6': address_ipv6,
+                'update_schedule': {
+                    'frequency': update_frequency,
+                    'time': update_time,
+                    'day': update_day if update_frequency == 'weekly' else ''
+                }
+            }
+            config['domain_sets'].append(domain_set)
             write_config(config)
-            flash('域名组添加成功！', 'success')
+            def delayed_restart():
+                time.sleep(1)
+                success, restart_message = restart_service()
+                if not success:
+                    logger.error(f"服务重启失败: {restart_message}")
+            threading.Thread(target=delayed_restart, daemon=True).start()
+            flash('域名组添加成功，SmartDNS 服务已重启！', 'success')
         else:
-            flash('域名组名称不能为空！', 'danger')
+            flash('域名组名称不能为空！', 'success')
     except Exception as e:
-        flash(f'添加域名组出错：{str(e)}', 'danger')
+        flash(f'添加域名组出错：{str(e)}', 'success')
     return redirect(url_for('index'))
 
 @app.route('/delete_domain_set/<int:index>')
@@ -457,11 +688,17 @@ def delete_domain_set(index):
         if 0 <= index < len(config['domain_sets']):
             config['domain_sets'].pop(index)
             write_config(config)
-            flash('域名组删除成功！', 'success')
+            def delayed_restart():
+                time.sleep(1)
+                success, restart_message = restart_service()
+                if not success:
+                    logger.error(f"服务重启失败: {restart_message}")
+            threading.Thread(target=delayed_restart, daemon=True).start()
+            flash('域名组删除成功，SmartDNS 服务已重启！', 'success')
         else:
-            flash('无效的域名组索引！', 'danger')
+            flash('无效的域名组索引！', 'success')
     except Exception as e:
-        flash(f'删除域名组出错：{str(e)}', 'danger')
+        flash(f'删除域名组出错：{str(e)}', 'success')
     return redirect(url_for('index'))
 
 @app.route('/update_domain_set/<int:index>', methods=['POST'])
@@ -471,7 +708,10 @@ def update_domain_set(index):
         if 0 <= index < len(config['domain_sets']):
             friendly_name = request.form.get('friendly_name', '')
             if not friendly_name:
-                return jsonify({'status': 'error', 'message': '域名组名称不能为空'})
+                return jsonify({'status': 'error', 'message': '域名组名称不能为空', 'restarted': False})
+            update_frequency = request.form.get('update_frequency', 'none')
+            update_time = request.form.get('update_time', '')
+            update_day = request.form.get('update_day', '')
             config['domain_sets'][index]['friendly_name'] = friendly_name
             config['domain_sets'][index]['name'] = f"{friendly_name.lower().replace(' ', '-')}-domain-list"
             config['domain_sets'][index]['file'] = generate_domain_filename(friendly_name)
@@ -480,9 +720,16 @@ def update_domain_set(index):
             config['domain_sets'][index]['speed_check_mode'] = request.form.get('speed_check_mode', 'ping')
             config['domain_sets'][index]['response_mode'] = request.form.get('response_mode', 'fastest')
             config['domain_sets'][index]['address_ipv6'] = request.form.get('address_ipv6', 'no') == 'yes'
+            config['domain_sets'][index]['update_schedule'] = {
+                'frequency': update_frequency,
+                'time': update_time,
+                'day': update_day if update_frequency == 'weekly' else ''
+            }
             content = request.form.get('content', '')
-            # 只在 domain_count <= 1000 且 content 非空时更新内容
             if content and config['domain_sets'][index]['domain_count'] <= 1000:
+                is_valid, validation_message = validate_domains(content)
+                if not is_valid:
+                    return jsonify({'status': 'error', 'message': validation_message, 'restarted': False})
                 try:
                     with open(config['domain_sets'][index]['file'], 'w', encoding='utf-8') as f:
                         f.write(content)
@@ -490,13 +737,19 @@ def update_domain_set(index):
                     config['domain_sets'][index]['last_updated'] = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
                     config['domain_sets'][index]['domain_count'] = len([line for line in content.splitlines() if line.strip() and not line.startswith('#')])
                 except Exception as e:
-                    return jsonify({'status': 'error', 'message': f'保存文件内容出错：{str(e)}'})
+                    return jsonify({'status': 'error', 'message': f'保存文件内容出错：{str(e)}', 'restarted': False})
             write_config(config)
-            return jsonify({'status': 'success', 'message': '已保存'})
+            def delayed_restart():
+                time.sleep(1)
+                success, restart_message = restart_service()
+                if not success:
+                    logger.error(f"服务重启失败: {restart_message}")
+            threading.Thread(target=delayed_restart, daemon=True).start()
+            return jsonify({'status': 'success', 'message': '已保存，服务正在重启', 'restarted': True})
         else:
-            return jsonify({'status': 'error', 'message': '无效的域名组索引'})
+            return jsonify({'status': 'error', 'message': '无效的域名组索引', 'restarted': False})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': f'更新域名组出错: {str(e)}'})
+        return jsonify({'status': 'error', 'message': f'更新域名组出错: {str(e)}', 'restarted': False})
 
 @app.route('/update_domain_content/<int:index>', methods=['POST'])
 def update_domain_content(index):
@@ -505,89 +758,48 @@ def update_domain_content(index):
         if 0 <= index < len(config['domain_sets']):
             url = request.form.get('url', '')
             if not url:
-                return jsonify({'status': 'error', 'message': 'URL 不能为空'})
-            session = requests.Session()
-            retries = Retry(total=5, backoff_factor=2, status_forcelist=[502, 503, 504, 403, 429])
-            session.mount('https://', HTTPAdapter(max_retries=retries))
-            domain = url.split('/')[2] if '//' in url else url.split('/')[0]
-            ip = resolve_domain_with_local_dns(domain)
-            response = None
-            if ip:
-                print(f"Resolved {domain} to {ip}")
-                try:
-                    if '//' in url:
-                        parts = url.split('//')
-                        path = parts[1].split('/', 1)[1] if len(parts[1].split('/')) > 1 else ''
-                        new_url = f"{parts[0]}//{ip}/{path}"
-                    else:
-                        path = url.split('/', 1)[1] if len(url.split('/')) > 1 else ''
-                        new_url = f"{ip}/{path}"
-                    headers = {'Host': domain}
-                    response = session.get(new_url, timeout=30, headers=headers, verify=False)
-                    if response.status_code == 200:
-                        print(f"Successfully fetched content from IP {ip}")
-                    else:
-                        print(f"IP request failed with status {response.status_code}, falling back to domain")
-                        response = None
-                except Exception as ip_error:
-                    print(f"IP request failed: {str(ip_error)}, falling back to domain")
-            if not response or response.status_code != 200:
-                response = session.get(url, timeout=30)
-            if response.status_code == 200:
-                content = response.text
-                try:
-                    with open(config['domain_sets'][index]['file'], 'w', encoding='utf-8') as f:
-                        f.write(content)
-                    mtime = os.path.getmtime(config['domain_sets'][index]['file'])
-                    config['domain_sets'][index]['last_updated'] = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
-                    config['domain_sets'][index]['domain_count'] = len([line for line in content.splitlines() if line.strip() and not line.startswith('#')])
-                    write_config(config)
-                    return jsonify({'status': 'success', 'message': '更新成功', 'content': content})
-                except Exception as e:
-                    return jsonify({'status': 'error', 'message': f'保存文件内容出错：{str(e)}'})
+                return jsonify({'status': 'error', 'message': 'URL 不能为空', 'restarted': False})
+            success, message, restarted = update_domain_content_by_index(index, url)
+            if success:
+                content = ''
+                if os.path.exists(config['domain_sets'][index]['file']):
+                    with open(config['domain_sets'][index]['file'], 'r', encoding='utf-8') as f:
+                        content = f.read()
+                return jsonify({'status': 'success', 'message': message + (', 服务正在重启' if restarted else ''), 'content': content, 'restarted': restarted})
             else:
-                return jsonify({'status': 'error', 'message': f'从URL获取内容失败，状态码：{response.status_code}'})
+                return jsonify({'status': 'error', 'message': message, 'restarted': False})
         else:
-            return jsonify({'status': 'error', 'message': '无效的域名组索引'})
+            return jsonify({'status': 'error', 'message': '无效的域名组索引', 'restarted': False})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': f'更新内容出错: {str(e)}'})
+        return jsonify({'status': 'error', 'message': f'更新内容出错: {str(e)}', 'restarted': False})
 
 @app.route('/backup', methods=['POST'])
 def backup():
     success, message = backup_config()
-    if success:
-        flash(message, 'success')
-    else:
-        flash(message, 'danger')
+    flash(message, 'success')
     return redirect(url_for('index'))
 
 @app.route('/restore', methods=['POST'])
 def restore():
     backup_file = request.form.get('backup_file', '')
     if not backup_file:
-        flash("未选择备份文件！", 'danger')
+        flash("未选择备份文件！", 'success')
         return redirect(url_for('index'))
     success, message = restore_config(backup_file)
-    if success:
-        flash(message, 'success')
-    else:
-        flash(message, 'danger')
+    flash(message, 'success')
     return redirect(url_for('index'))
 
 @app.route('/restart', methods=['POST'])
 def restart():
     success, message = restart_service()
-    if success:
-        flash(message, 'success')
-    else:
-        flash(message, 'danger')
+    flash(message, 'success')
     return redirect(url_for('index'))
 
 @app.route('/test_dns', methods=['POST'])
 def test_dns():
     domain = request.form.get('test_domain', 'www.google.com')
     success, message = test_dns_resolution(domain)
-    flash(message, 'success' if success else 'danger')
+    flash(message, 'success')
     return redirect(url_for('index'))
 
 @app.route('/backups', methods=['GET'])
@@ -599,4 +811,5 @@ def list_backups():
         return jsonify({'status': 'error', 'message': str(e)})
 
 if __name__ == '__main__':
+    logger.info("应用启动，启动自定义调度器")
     app.run(host='0.0.0.0', port=8088, debug=True)
