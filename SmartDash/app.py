@@ -76,7 +76,7 @@ def read_config():
     config = {
         'bind': {'port': '5353', 'tcp_port': '5353'},
         'cache': {
-            'enabled': 'no',
+            'enabled': 'yes',
             'size': '32768',
             'persist': 'yes',
             'file': '/etc/smartdns/cache.db',
@@ -492,14 +492,19 @@ def test_dns_resolution(domain="www.google.com"):
                 if ip != "127.0.0.1" and "#53" not in ip:
                     ip_addresses.append(ip)
         if ip_addresses:
-            # 使用 "to" 替代 "->"，避免 HTML 转义问题
-            return True, f"DNS 解析成功: {domain} to {', '.join(ip_addresses)}"
+            # 限制最多显示前两个 IP 地址
+            displayed_ips = ip_addresses[:2]
+            total_ips = len(ip_addresses)
+            if total_ips > 2:
+                return True, f"DNS 解析成功: {domain} to {', '.join(displayed_ips)} (共 {total_ips} 个结果，仅显示前 2 个)"
+            return True, f"DNS 解析成功: {domain} to {', '.join(displayed_ips)}"
         return False, f"DNS 解析失败: 没有有效结果\n{output}"
     except subprocess.TimeoutExpired:
         return False, "DNS 解析失败: 请求超时"
     except Exception as e:
         logger.error(f"DNS 测试出错: {str(e)}")
         return False, f"DNS 解析失败: {str(e)}"
+
 
 @app.route('/')
 def index():
