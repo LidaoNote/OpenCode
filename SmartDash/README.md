@@ -47,7 +47,6 @@ chmod +x install_smartdash.sh
 - **3**：卸载 SmartDash 服务
 - **4**：退出
 
-
 ## ⚠️ 注意事项
 
 - **前置条件**：必须先安装 **SmartDNS**，且配置文件位于 `/etc/smartdns/smartdns.conf`。
