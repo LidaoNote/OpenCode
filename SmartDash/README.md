@@ -59,7 +59,7 @@ chmod +x install_smartdash.sh
 
 本项目采用 [MIT 许可证](https://opensource.org/licenses/MIT)，欢迎自由使用与修改。
 
-## 🔗 相关资源2
+## 🔗 相关资源
 
 - [SmartDNS 官方文档](https://github.com/pymumu/smartdns)
 - [SmartDash 项目主页](https://github.com/LidaoNote/OpenCode/tree/main/SmartDash)
