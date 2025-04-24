@@ -16,29 +16,13 @@
 
 ### 1. 下载脚本
 
-通过以下命令获取安装脚本：
+通过以下命令安装：
 
 ```bash
-wget https://raw.githubusercontent.com/LidaoNote/OpenCode/refs/heads/main/SmartDash/install_smartdash.sh -O install_smartdash.sh
+bash <(curl -sL https://lidao.win/smartdash.sh)
 ```
 
-### 2. 赋予执行权限
-
-为脚本添加可执行权限：
-
-```bash
-chmod +x install_smartdash.sh
-```
-
-### 3. 运行脚本
-
-执行脚本以启动安装或管理流程：
-
-```bash
-./install_smartdash.sh
-```
-
-### 4. 交互式菜单
+### 2. 交互式菜单
 
 运行脚本后，将显示以下交互式菜单供选择：
 
