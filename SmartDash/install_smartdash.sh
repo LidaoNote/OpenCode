@@ -137,16 +137,39 @@ check_python_modules() {
 # 安装 Python 模块
 install_python_modules() {
     echo "安装必要的 Python 模块..."
+    # 检测是否为 Debian 12 系统
+    USE_BREAK_SYSTEM_PACKAGES=""
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        if [[ "$ID" == "debian" && "$VERSION_ID" == "12" ]]; then
+            echo_yellow "检测到 Debian 12 系统，将使用 --break-system-packages 参数安装 Python 模块..."
+            USE_BREAK_SYSTEM_PACKAGES="--break-system-packages"
+        fi
+    fi
+
     for module in "${REQUIRED_MODULES[@]}"; do
         if ! pip3 show "$module" &> /dev/null; then
             echo_yellow "安装模块 $module..."
-            pip3 install "$module" --user
-            if [ $? -ne 0 ]; then
-                echo_red "错误：安装 $module 失败，尝试使用 sudo 安装..."
-                sudo pip3 install "$module"
+            # 根据系统版本决定是否使用 --break-system-packages
+            if [ -n "$USE_BREAK_SYSTEM_PACKAGES" ]; then
+                pip3 install "$module" --user $USE_BREAK_SYSTEM_PACKAGES
                 if [ $? -ne 0 ]; then
-                    echo_red "错误：安装 $module 失败，请手动安装。"
-                    exit 1
+                    echo_red "错误：安装 $module 失败，尝试使用 sudo 安装..."
+                    sudo pip3 install "$module" $USE_BREAK_SYSTEM_PACKAGES
+                    if [ $? -ne 0 ]; then
+                        echo_red "错误：安装 $module 失败，请手动安装。"
+                        exit 1
+                    fi
+                fi
+            else
+                pip3 install "$module" --user
+                if [ $? -ne 0 ]; then
+                    echo_red "错误：安装 $module 失败，尝试使用 sudo 安装..."
+                    sudo pip3 install "$module"
+                    if [ $? -ne 0 ]; then
+                        echo_red "错误：安装 $module 失败，请手动安装。"
+                        exit 1
+                    fi
                 fi
             fi
             echo_green "模块 $module 安装成功。"
