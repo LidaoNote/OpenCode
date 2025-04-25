@@ -219,7 +219,7 @@ install_service() {
     # 创建服务文件
     cat > "$SERVICE_FILE" << EOF
 [Unit]
-Description=SmartDash - SmartDNS Configuration Web Interface
+Description=SmartDash
 After=network.target
 
 [Service]
