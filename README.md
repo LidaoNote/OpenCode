@@ -15,8 +15,8 @@ OpenCode 仓库由 LidaoNote 维护，托管于 [GitHub](https://github.com/Lida
 | AdGuardHome         | 包含与 AdGuardHome 相关的配置文件和脚本。                             |
 | FantastiqueSansMono | 包含 FantastiqueSansMono 字体文件相关资源，适用于界面设计或文档。     |
 | SmartDNS            | 包含 SmartDNS 相关的配置文件或脚本，用于智能 DNS 解析和网络优化。     |
-| SmartDash           | 这是 SmartDash 相关的工具和脚本，这事一个简单的 SmartDNS 仪表盘。    |
-| miniChat            | 一个小型聊天应用的代码，用于学习或测试通信功能。                     |
+| SmartDash           | 这是 SmartDash 相关的工具和脚本，这事一个简单的 SmartDNS 仪表盘。     |
+| miniChat            | 一个小型聊天应用的代码，用于学习或测试通信功能。                      |
 
 ### 文件
 
@@ -26,7 +26,7 @@ OpenCode 仓库由 LidaoNote 维护，托管于 [GitHub](https://github.com/Lida
 | README.md           | 仓库的主说明文档，提供基本信息和使用指南。                      |
 | agh_admin.py        | AdGuardHome 管理脚本，用于设置 AdGuardHome 的管理员账号和密码。 |
 | bcrypt10.py         | 使用 bcrypt 进行加密的 Python 脚本，能进行 10 次密码哈希。       |
-| block.txt           | 黑名单文件，包含需要屏蔽的 IP 或域名，用于网络过滤。             |
+| block.txt           | 黑名单文件，包含屏蔽的 IP 或域名，用于网络过滤。             |
 | china_ip.txt        | 中国 IP 地址列表，可能用于地理定位、访问控制或网络测试。         |
 | dns.sh              | DNS 相关脚本，用于一键 SmartDNS 安装服务。                      |
 | doh.py              | DNS over HTTPS (DoH) 相关脚本，用于加密 DNS 查询。              |
