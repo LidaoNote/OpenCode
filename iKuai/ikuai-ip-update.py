@@ -9,7 +9,7 @@ import os
 IKUAI_URL = "http://10.0.0.1  # ikuai访问地址
 USERNAME = "admin"  # ikuai用户名
 PASSWORD = "admin"  #ikuai 密码
-CHINA_IP_URL = "https://raw.githubusercontent.com/17mon/china_ip_list/master/china_ip_list.txt"
+CHINA_IP_URL = "https://raw.githubusercontent.com/LidaoNote/OpenCode/refs/heads/main/china_ip.txt"
 LAST_IP_FILE = "last_china_ip.json"  # 获取的 IP 列表文件存档
 
 # API 端点
