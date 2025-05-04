@@ -3,8 +3,8 @@
 # iKuai IP 更新服务一键安装脚本
 # 适用于基于 systemd 的 Linux 系统（如 Ubuntu、CentOS 等）
 # 支持从网络下载 ikuai-ip-update.py 或使用本地文件
-# 如果缺少 config.json，将交互式生成配置文件
-# 中国 IP 列表 URL 和本地 IP 列表文件名支持默认值
+# 如果缺少 config.json，将交互式生成配置文件，包含详细注释
+# 部分配置项使用默认值，用户可事后编辑 config.json 修改
 
 # 目标安装目录
 INSTALL_DIR="/opt/iksip"
@@ -14,6 +14,10 @@ SCRIPT_URL="https://raw.githubusercontent.com/LidaoNote/OpenCode/refs/heads/main
 SCRIPT_NAME="ikuai-ip-update.py"
 DEFAULT_CHINA_IP_URL="https://raw.githubusercontent.com/LidaoNote/OpenCode/refs/heads/main/china_ip.txt"
 DEFAULT_LAST_IP_FILE="last_sync_ip.json"
+DEFAULT_TIMEOUT=30
+DEFAULT_CHUNK_SIZE=10000
+DEFAULT_SCHEDULE_TYPE="d"
+DEFAULT_SCHEDULE_TIME="05:00"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -100,62 +104,59 @@ if [ ! -f "config.json" ]; then
     [ -z "$password" ] && log_error "密码不能为空"
     config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['password']='$password'; print(json.dumps(d))")
 
-    read -p "请输入 IP 列表 URL (按 Enter 使用默认 $DEFAULT_CHINA_IP_URL): " china_ip_url
-    china_ip_url=${china_ip_url:-$DEFAULT_CHINA_IP_URL}
-    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['china_ip_url']='$china_ip_url'; print(json.dumps(d))")
-
-    read -p "请输入本地 IP 列表文件名 (按 Enter 使用默认 $DEFAULT_LAST_IP_FILE，将在首次运行时生成): " last_ip_file
-    last_ip_file=${last_ip_file:-$DEFAULT_LAST_IP_FILE}
-    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['last_ip_file']='$last_ip_file'; print(json.dumps(d))")
-
-    read -p "请输入 API 请求超时时间（秒，例如 10）: " timeout
-    [ -z "$timeout" ] && log_error "超时时间不能为空"
-    if ! [[ "$timeout" =~ ^[0-9]+(\.[0-9]+)?$ ]] || [ "$timeout" -le 0 ]; then
-        log_error "超时时间必须为正数"
-    fi
-    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['timeout']=$timeout; print(json.dumps(d))")
-
-    read -p "请输入分块大小（例如 10000，当前 API 无需分块）: " chunk_size
-    [ -z "$chunk_size" ] && log_error "分块大小不能为空"
-    if ! [[ "$chunk_size" =~ ^[0-9]+$ ]] || [ "$chunk_size" -le 0 ]; then
-        log_error "分块大小必须为正整数"
-    fi
-    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['chunk_size']=$chunk_size; print(json.dumps(d))")
+    # 使用默认值
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['china_ip_url']='$DEFAULT_CHINA_IP_URL'; print(json.dumps(d))")
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['last_ip_file']='$DEFAULT_LAST_IP_FILE'; print(json.dumps(d))")
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['timeout']=$DEFAULT_TIMEOUT; print(json.dumps(d))")
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['chunk_size']=$DEFAULT_CHUNK_SIZE; print(json.dumps(d))")
 
     read -p "请输入运营商名称 (例如 CN): " isp_name
     [ -z "$isp_name" ] && log_error "运营商名称不能为空"
     config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['isp_name']='$isp_name'; print(json.dumps(d))")
 
-    read -p "请输入调度周期 (d=每天, w=每周, m=每月): " schedule_type
-    [ -z "$schedule_type" ] && log_error "调度周期不能为空"
+    read -p "请输入调度周期 (d=每天, w=每周, m=每月，默认 d): " schedule_type
+    schedule_type=${schedule_type:-$DEFAULT_SCHEDULE_TYPE}
     if ! [[ "$schedule_type" =~ ^(d|w|m)$ ]]; then
         log_error "调度周期必须为 d, w 或 m"
     fi
     config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['schedule_type']='$schedule_type'; print(json.dumps(d))")
 
-    read -p "请输入调度时间 (HH:MM，例如 00:00): " schedule_time
-    [ -z "$schedule_time" ] && log_error "调度时间不能为空"
+    read -p "请输入调度时间 (HH:MM，例如 05:00，默认 05:00): " schedule_time
+    schedule_time=${schedule_time:-$DEFAULT_SCHEDULE_TIME}
     if ! [[ "$schedule_time" =~ ^[0-2][0-9]:[0-5][0-9]$ ]]; then
         log_error "调度时间必须为 HH:MM 格式"
     fi
     config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['schedule_time']='$schedule_time'; print(json.dumps(d))")
 
-    read -p "请输入每周调度星期 (monday, tuesday, ..., sunday): " schedule_day
-    [ -z "$schedule_day" ] && log_error "调度星期不能为空"
+    read -p "请输入每周调度星期 (monday, tuesday, ..., sunday，默认 monday): " schedule_day
+    schedule_day=${schedule_day:-monday}
     if ! [[ "$schedule_day" =~ ^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$ ]]; then
         log_error "调度星期必须为 monday, tuesday 等"
     fi
     config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['schedule_day']='$schedule_day'; print(json.dumps(d))")
 
-    read -p "请输入每月调度日期 (1-28): " schedule_date
-    [ -z "$schedule_date" ] && log_error "调度日期不能为空"
+    read -p "请输入每月调度日期 (1-28，默认 1): " schedule_date
+    schedule_date=${schedule_date:-1}
     if ! [[ "$schedule_date" =~ ^[0-9]+$ ]] || [ "$schedule_date" -lt 1 ] || [ "$schedule_date" -gt 28 ]; then
         log_error "调度日期必须为 1-28 之间的整数"
     fi
     config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['schedule_date']=$schedule_date; print(json.dumps(d))")
 
-    # 保存 config.json
-    echo "$config_json" | python3 -c "import json, sys; json.dump(json.load(sys.stdin), open('config.json', 'w'), indent=4)" || log_error "生成 config.json 失败"
+    # 保存 config.json，添加详细注释
+    echo "{
+        \"ikuai_url\": \"$ikuai_url\",  // iKuai 路由器地址，例如 http://10.0.0.1，必须是有效的 URL
+        \"username\": \"$username\",  // iKuai 管理员用户名，不能为空
+        \"password\": \"$password\",  // iKuai 管理员密码，不能为空
+        \"china_ip_url\": \"$DEFAULT_CHINA_IP_URL\",  // IP 列表的 URL，默认为中国 IP 列表，可改为其他 IP 列表的 URL
+        \"last_ip_file\": \"$DEFAULT_LAST_IP_FILE\",  // 本地保存的 IP 列表文件名，首次运行时生成，可改为其他文件名（如 my_ip_list.json）
+        \"timeout\": $DEFAULT_TIMEOUT,  // API 请求超时时间（秒），正数，可根据网络情况调整（如 10, 60）
+        \"chunk_size\": $DEFAULT_CHUNK_SIZE,  // 分块大小（当前 API 无需分块），正整数，可根据需要调整（如 5000, 20000）
+        \"isp_name\": \"$isp_name\",  // 运营商名称（如 CN），用于 iKuai 路由器，不能为空
+        \"schedule_type\": \"$schedule_type\",  // 调度周期：d=每天，w=每周，m=每月，默认为 d
+        \"schedule_time\": \"$schedule_time\",  // 调度时间，格式 HH:MM（如 05:00），表示每天/每周/每月的运行时间
+        \"schedule_day\": \"$schedule_day\",  // 每周调度星期（如 monday），仅在 schedule_type=w 时有效，可为 monday, tuesday, ..., sunday
+        \"schedule_date\": $schedule_date  // 每月调度日期（1-28），仅在 schedule_type=m 时有效，默认为 1
+    }" | python3 -c "import json, sys; json.dump(json.load(sys.stdin), open('config.json', 'w'), indent=4)" || log_error "生成 config.json 失败"
     log_info "已生成 config.json"
 fi
 
@@ -239,6 +240,11 @@ fi
 log_info "安装完成！"
 log_info "服务日志位于: $INSTALL_DIR/ikuai-ip-update.log"
 log_info "配置文件位于: $INSTALL_DIR/config.json"
+log_info "您可以编辑 $INSTALL_DIR/config.json 修改以下默认配置："
+log_info "  - IP 列表 URL: $DEFAULT_CHINA_IP_URL"
+log_info "  - 本地 IP 列表文件名: $DEFAULT_LAST_IP_FILE"
+log_info "  - API 请求超时时间: $DEFAULT_TIMEOUT 秒"
+log_info "  - 分块大小: $DEFAULT_CHUNK_SIZE（当前 API 无需分块）"
 log_info "管理服务命令："
 log_info "  - 查看状态: systemctl status $SERVICE_NAME"
 log_info "  - 停止服务: systemctl stop $SERVICE_NAME"
