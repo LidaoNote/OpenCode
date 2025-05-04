@@ -16,7 +16,7 @@ OpenCode 仓库由 LidaoNote 维护，托管于 [GitHub](https://github.com/Lida
 | FantastiqueSansMono | 包含 FantastiqueSansMono 字体文件相关资源，适用于界面设计或文档。     |
 | SmartDNS            | 包含 SmartDNS 相关的配置文件或脚本，用于智能 DNS 解析和网络优化。    |
 | SmartDash           | 这是 SmartDash 相关的工具和脚本，这事一个简单的 SmartDNS 仪表盘。   |
-| miniChat            | 一个小型聊天应用的代码，用于学习或测试通信功能。               |
+| miniChat            | 一个小型聊天应用的代码，用于学习或测试通信功能。                    |
 
 ### 文件
 
