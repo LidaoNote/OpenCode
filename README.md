@@ -23,14 +23,14 @@ OpenCode 仓库由 LidaoNote 维护，托管于 [GitHub](https://github.com/Lida
 | 文件名称            | 描述                                                                 |
 |---------------------|----------------------------------------------------------------------|
 | ImmortalWrt_opkg.txt| ImmortalWrt 系统的 opkg ，包含国外和国内源地址。                |
-| README.md           | 仓库的主说明文档，提供基本信息和使用指南。                      |
-| agh_admin.py        | AdGuardHome 管理脚本，用于设置 AdGuardHome 的管理员账号和密码。 |
+| README.md           | 仓库的主说明文档，提供基本信息和使用指南。                       |
+| agh_admin.py        | AdGuardHome 管理脚本，用于设置 AdGuardHome 的管理员账号和密码。  |
 | bcrypt10.py         | 使用 bcrypt 进行加密的 Python 脚本，能进行 10 次密码哈希。       |
 | block.txt           | 黑名单文件，包含国内屏蔽的 IP 或域名。                           |
 | china_ip.txt        | 中国 IP 地址列表。                                              |
 | dns.sh              | DNS 相关脚本，用于一键 SmartDNS 安装服务。                      |
 | doh.py              | DNS over HTTPS (DoH) 相关脚本，用于加密 DNS 查询。              |
-| unique_ip.txt       | DNS 污染后的 IP 地址返回列表，来源是维基百科。                  |
+| unique_ip.txt       | DNS 污染后的 IP 地址返回列表，来源是维基百科。                   |
 
 
 ## 贡献指南
