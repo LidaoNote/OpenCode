@@ -1,11 +1,12 @@
 #!/bin/bash
 
-# iKuai IP 绕过服务一键安装脚本
+# iKuai IP 更新服务一键安装脚本
 # 适用于基于 systemd 的 Linux 系统（如 Ubuntu、CentOS 等）
+# 如果缺少 config.json，将交互式生成配置文件
 
 # 目标安装目录
-INSTALL_DIR="/opt/ikbyp"
-SERVICE_NAME="ikbyp"
+INSTALL_DIR="/opt/iksip"
+SERVICE_NAME="iksip"
 SYSTEMD_SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 # 颜色输出
@@ -55,13 +56,86 @@ if ! command -v pip3 >/dev/null 2>&1; then
     fi
 fi
 
-# 检查当前目录下是否有 ikuai-ip-update.py 和 config.json
+# 检查当前目录下是否有 ikuai-ip-update.py
 if [ ! -f "ikuai-ip-update.py" ]; then
     log_error "当前目录下缺少 ikuai-ip-update.py 文件"
 fi
 
+# 交互式生成 config.json（如果不存在）
 if [ ! -f "config.json" ]; then
-    log_error "当前目录下缺少 config.json 文件"
+    log_warning "未找到 config.json，将通过交互式输入生成配置文件"
+    config_json="{}"
+    
+    # 收集用户输入
+    read -p "请输入 iKuai 路由器地址 (例如 http://10.0.0.1): " ikuai_url
+    [ -z "$ikuai_url" ] && log_error "iKuai 路由器地址不能为空"
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['ikuai_url']='$ikuai_url'; print(json.dumps(d))")
+
+    read -p "请输入 iKuai 用户名: " username
+    [ -z "$username" ] && log_error "用户名不能为空"
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['username']='$username'; print(json.dumps(d))")
+
+    read -p "请输入 iKuai 密码: " password
+    [ -z "$password" ] && log_error "密码不能为空"
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['password']='$password'; print(json.dumps(d))")
+
+    read -p "请输入中国 IP 列表 URL (例如 https://raw.githubusercontent.com/LidaoNote/OpenCode/refs/heads/main/china_ip.txt): " china_ip_url
+    [ -z "$china_ip_url" ] && log_error "中国 IP 列表 URL 不能为空"
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['china_ip_url']='$china_ip_url'; print(json.dumps(d))")
+
+    read -p "请输入本地 IP 列表文件名 (例如 last_china_ip.json): " last_ip_file
+    [ -z "$last_ip_file" ] && log_error "本地 IP 列表文件名不能为空"
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['last_ip_file']='$last_ip_file'; print(json.dumps(d))")
+
+    read -p "请输入 API 请求超时时间（秒，例如 10）: " timeout
+    [ -z "$timeout" ] && log_error "超时时间不能为空"
+    if ! [[ "$timeout" =~ ^[0-9]+(\.[0-9]+)?$ ]] || [ "$timeout" -le 0 ]; then
+        log_error "超时时间必须为正数"
+    fi
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['timeout']=$timeout; print(json.dumps(d))")
+
+    read -p "请输入分块大小（例如 10000，当前 API 无需分块）: " chunk_size
+    [ -z "$chunk_size" ] && log_error "分块大小不能为空"
+    if ! [[ "$chunk_size" =~ ^[0-9]+$ ]] || [ "$chunk_size" -le 0 ]; then
+        log_error "分块大小必须为正整数"
+    fi
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['chunk_size']=$chunk_size; print(json.dumps(d))")
+
+    read -p "请输入运营商名称 (例如 CN): " isp_name
+    [ -z "$isp_name" ] && log_error "运营商名称不能为空"
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['isp_name']='$isp_name'; print(json.dumps(d))")
+
+    read -p "请输入调度周期 (d=每天, w=每周, m=每月): " schedule_type
+    [ -z "$schedule_type" ] && log_error "调度周期不能为空"
+    if ! [[ "$schedule_type" =~ ^(d|w|m)$ ]]; then
+        log_error "调度周期必须为 d, w 或 m"
+    fi
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['schedule_type']='$schedule_type'; print(json.dumps(d))")
+
+    read -p "请输入调度时间 (HH:MM，例如 00:00): " schedule_time
+    [ -z "$schedule_time" ] && log_error "调度时间不能为空"
+    if ! [[ "$schedule_time" =~ ^[0-2][0-9]:[0-5][0-9]$ ]]; then
+        log_error "调度时间必须为 HH:MM 格式"
+    fi
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['schedule_time']='$schedule_time'; print(json.dumps(d))")
+
+    read -p "请输入每周调度星期 (monday, tuesday, ..., sunday): " schedule_day
+    [ -z "$schedule_day" ] && log_error "调度星期不能为空"
+    if ! [[ "$schedule_day" =~ ^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$ ]]; then
+        log_error "调度星期必须为 monday, tuesday 等"
+    fi
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['schedule_day']='$schedule_day'; print(json.dumps(d))")
+
+    read -p "请输入每月调度日期 (1-28): " schedule_date
+    [ -z "$schedule_date" ] && log_error "调度日期不能为空"
+    if ! [[ "$schedule_date" =~ ^[0-9]+$ ]] || [ "$schedule_date" -lt 1 ] || [ "$schedule_date" -gt 28 ]; then
+        log_error "调度日期必须为 1-28 之间的整数"
+    fi
+    config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['schedule_date']=$schedule_date; print(json.dumps(d))")
+
+    # 保存 config.json
+    echo "$config_json" | python3 -c "import json, sys; json.dump(json.load(sys.stdin), open('config.json', 'w'), indent=4)" || log_error "生成 config.json 失败"
+    log_info "已生成 config.json"
 fi
 
 # 验证 config.json 格式
@@ -106,7 +180,7 @@ pip3 install requests tenacity schedule || log_error "安装 Python 依赖失败
 log_info "创建 systemd 服务文件: $SYSTEMD_SERVICE_FILE"
 cat > "$SYSTEMD_SERVICE_FILE" << EOF
 [Unit]
-Description=iKuai IP Bypass Service
+Description=iKuai IP Update Service
 After=network.target
 
 [Service]
