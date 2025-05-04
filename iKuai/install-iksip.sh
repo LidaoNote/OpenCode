@@ -4,7 +4,7 @@
 # 适用于基于 systemd 的 Linux 系统（如 Ubuntu、CentOS 等）
 # 支持从网络下载 ikuai-ip-update.py 或使用本地文件
 # 如果缺少 config.json，将交互式生成配置文件，仅要求用户输入必要字段
-# 其他字段使用默认值，用户可事后编辑 config.json 修改，配置文件包含详细注释
+# username 和 isp_name 支持默认值，其他字段使用默认值，配置文件包含详细注释
 
 # 目标安装目录
 INSTALL_DIR="/opt/iksip"
@@ -16,6 +16,8 @@ DEFAULT_CHINA_IP_URL="https://raw.githubusercontent.com/LidaoNote/OpenCode/refs/
 DEFAULT_LAST_IP_FILE="last_sync_ip.json"
 DEFAULT_TIMEOUT=30
 DEFAULT_CHUNK_SIZE=10000
+DEFAULT_USERNAME="admin"
+DEFAULT_ISP_NAME="CN"
 DEFAULT_SCHEDULE_TYPE="d"
 DEFAULT_SCHEDULE_TIME="05:00"
 DEFAULT_SCHEDULE_DAY="monday"
@@ -96,17 +98,17 @@ if [ ! -f "config.json" ]; then
     read -p "请输入 iKuai 路由器地址 (例如 http://10.0.0.1): " ikuai_url
     [ -z "$ikuai_url" ] && log_error "iKuai 路由器地址不能为空"
 
-    read -p "请输入 iKuai 用户名: " username
-    [ -z "$username" ] && log_error "用户名不能为空"
+    read -p "请输入 iKuai 用户名 (按 Enter 使用默认 $DEFAULT_USERNAME): " username
+    username=${username:-$DEFAULT_USERNAME}
 
     read -p "请输入 iKuai 密码: " password
     [ -z "$password" ] && log_error "密码不能为空"
 
-    read -p "请输入运营商名称 (例如 CN): " isp_name
-    [ -z "$isp_name" ] && log_error "运营商名称不能为空"
+    read -p "请输入运营商名称 (按 Enter 使用默认 $DEFAULT_ISP_NAME): " isp_name
+    isp_name=${isp_name:-$DEFAULT_ISP_NAME}
 
     # 使用 Python 生成 config.json，避免 Bash 字符串转义问题
-    python3 - << EOF || log_error "生成 config.json 失败，请检查输入值（可能包含特殊字符）"
+    python3 - << EOF || log_error "生成 config.json 失败，请检查输入值（可能包含特殊字符，如引号或换行符）"
 import json
 config = {
     "ikuai_url": "$ikuai_url",
@@ -126,7 +128,7 @@ config = {
 config_with_comments = [
     {"// ikuai_url": "iKuai 路由器地址，例如 http://10.0.0.1，必须是有效的 URL"},
     {"ikuai_url": config["ikuai_url"]},
-    {"// username": "iKuai 管理员用户名，不能为空"},
+    {"// username": "iKuai 管理员用户名，不能为空，默认为 admin"},
     {"username": config["username"]},
     {"// password": "iKuai 管理员密码，不能为空"},
     {"password": config["password"]},
@@ -134,11 +136,11 @@ config_with_comments = [
     {"china_ip_url": config["china_ip_url"]},
     {"// last_ip_file": "本地保存的 IP 列表文件名，首次运行时生成，可改为其他文件名（如 my_ip_list.json）"},
     {"last_ip_file": config["last_ip_file"]},
-    {"// timeout": "API 请求超时时间（秒），正数，可根据网络情况调整（如 10, 60）"},
+    {"// timeout": "API 请求超时时间（秒），正数，可根据网络情况调整（如 10, 60），默认为 30"},
     {"timeout": config["timeout"]},
-    {"// chunk_size": "分块大小（当前 API 无需分块），正整数，可根据需要调整（如 5000, 20000）"},
+    {"// chunk_size": "分块大小（当前 API 无需分块），正整数，可根据需要调整（如 5000, 20000），默认为 10000"},
     {"chunk_size": config["chunk_size"]},
-    {"// isp_name": "运营商名称（如 CN），用于 iKuai 路由器，不能为空"},
+    {"// isp_name": "运营商名称，用于 iKuai 路由器，不能为空，默认为 CN"},
     {"isp_name": config["isp_name"]},
     {"// schedule_type": "调度周期：d=每天，w=每周，m=每月，默认为 d（每天）"},
     {"schedule_type": config["schedule_type"]},
