@@ -2,7 +2,9 @@
 
 # iKuai IP 更新服务一键安装脚本
 # 适用于基于 systemd 的 Linux 系统（如 Ubuntu、CentOS 等）
-# 支持安装、卸载、从网络下载 ikuai-ip-update.py 或使用本地文件
+# 支持通过键盘交互选择安装、卸载或退出
+# 安装：生成 config.json 和 config.json.example，配置服务，以 root 用户运行
+# 卸载：删除服务和配置文件
 # 如果缺少 config.json，将交互式生成标准 JSON 配置文件，仅要求用户输入必要字段
 # username 和 isp_name 支持默认值，其他字段使用默认值，配置说明在 config.json.example 中
 
@@ -43,14 +45,29 @@ log_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
-# 使用说明
-usage() {
-    echo "使用方法: $0 [选项]"
-    echo "选项:"
-    echo "  --install     安装 iKuai IP 更新服务（默认）"
-    echo "  --uninstall   卸载 iKuai IP 更新服务，删除服务和配置文件"
-    echo "  --help        显示此帮助信息"
-    exit 0
+# 交互式菜单
+show_menu() {
+    echo "请选择操作："
+    echo "1. 安装 iKuai IP 更新服务"
+    echo "2. 卸载 iKuai IP 更新服务"
+    echo "3. 退出"
+    read -p "输入选项 (1-3): " choice
+    case "$choice" in
+        1)
+            install_service
+            ;;
+        2)
+            uninstall_service
+            ;;
+        3)
+            log_info "退出脚本"
+            exit 0
+            ;;
+        *)
+            log_warning "无效选项，请输入 1、2 或 3"
+            show_menu
+            ;;
+    esac
 }
 
 # 卸载服务
@@ -92,88 +109,74 @@ uninstall_service() {
     exit 0
 }
 
-# 检查是否为 root 用户
-if [ "$(id -u)" -ne 0 ]; then
-    log_error "请以 root 用户或使用 sudo 运行此脚本"
-fi
-
-# 解析命令行参数
-case "$1" in
-    --install|"")
-        # 默认执行安装
-        ;;
-    --uninstall)
-        uninstall_service
-        ;;
-    --help)
-        usage
-        ;;
-    *)
-        log_error "未知选项: $1。使用 --help 查看帮助"
-        ;;
-esac
-
-# 检查系统是否支持 systemd
-if ! command -v systemctl >/dev/null 2>&1; then
-    log_error "此脚本仅支持基于 systemd 的系统（如 Ubuntu、CentOS)"
-fi
-
-# 检查 Python 3 是否安装
-if ! command -v python3 >/dev/null 2>&1; then
-    log_error "Python 3 未安装，请先安装 Python 3"
-fi
-
-# 检查 pip 是否安装
-if ! command -v pip3 >/dev/null 2>&1; then
-    log_warning "pip3 未安装，尝试安装..."
-    if command -v apt-get >/dev/null 2>&1; then
-        apt-get update && apt-get install -y python3-pip || log_error "安装 pip3 失败"
-    elif command -v yum >/dev/null 2>&1; then
-        yum install -y python3-pip || log_error "安装 pip3 失败"
-    else
-        log_error "无法自动安装 pip3，请手动安装"
+# 安装服务
+install_service() {
+    # 检查是否为 root 用户
+    if [ "$(id -u)" -ne 0 ]; then
+        log_error "请以 root 用户或使用 sudo 运行此脚本"
     fi
-fi
 
-# 检查并获取 ikuai-ip-update.py
-if [ -f "$SCRIPT_NAME" ]; then
-    log_info "找到本地 $SCRIPT_NAME 文件，将使用本地文件"
-else
-    log_info "未找到本地 $SCRIPT_NAME 文件，尝试从 $SCRIPT_URL 下载"
-    if command -v curl >/dev/null 2>&1; then
-        curl -o "$SCRIPT_NAME" "$SCRIPT_URL" || log_error "下载 $SCRIPT_NAME 失败"
-    elif command -v wget >/dev/null 2>&1; then
-        wget -O "$SCRIPT_NAME" "$SCRIPT_URL" || log_error "下载 $SCRIPT_NAME 失败"
-    else
-        log_error "未安装 curl 或 wget，请安装后重试"
+    # 检查系统是否支持 systemd
+    if ! command -v systemctl >/dev/null 2>&1; then
+        log_error "此脚本仅支持基于 systemd 的系统（如 Ubuntu、CentOS)"
     fi
-    log_info "成功下载 $SCRIPT_NAME"
-fi
 
-# 验证 ikuai-ip-update.py 是否可执行
-if ! head -n 1 "$SCRIPT_NAME" | grep -q "^#!/usr/bin/env python3"; then
-    log_error "$SCRIPT_NAME 文件格式错误，缺少 Python shebang 行"
-fi
+    # 检查 Python 3 是否安装
+    if ! command -v python3 >/dev/null 2>&1; then
+        log_error "Python 3 未安装，请先安装 Python 3"
+    fi
 
-# 交互式生成 config.json（如果不存在）
-if [ ! -f "config.json" ]; then
-    log_warning "未找到 config.json，将通过交互式输入生成配置文件"
-    
-    # 收集用户输入
-    read -p "请输入 iKuai 路由器地址 (例如 http://10.0.0.1): " ikuai_url
-    [ -z "$ikuai_url" ] && log_error "iKuai 路由器地址不能为空"
+    # 检查 pip 是否安装
+    if ! command -v pip3 >/dev/null 2>&1; then
+        log_warning "pip3 未安装，尝试安装..."
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get update && apt-get install -y python3-pip || log_error "安装 pip3 失败"
+        elif command -v yum >/dev/null 2>&1; then
+            yum install -y python3-pip || log_error "安装 pip3 失败"
+        else
+            log_error "无法自动安装 pip3，请手动安装"
+        fi
+    fi
 
-    read -p "请输入 iKuai 用户名 (按 Enter 使用默认 $DEFAULT_USERNAME): " username
-    username=${username:-$DEFAULT_USERNAME}
+    # 检查并获取 ikuai-ip-update.py
+    if [ -f "$SCRIPT_NAME" ]; then
+        log_info "找到本地 $SCRIPT_NAME 文件，将使用本地文件"
+    else
+        log_info "未找到本地 $SCRIPT_NAME 文件，尝试从 $SCRIPT_URL 下载"
+        if command -v curl >/dev/null 2>&1; then
+            curl -o "$SCRIPT_NAME" "$SCRIPT_URL" || log_error "下载 $SCRIPT_NAME 失败"
+        elif command -v wget >/dev/null 2>&1; then
+            wget -O "$SCRIPT_NAME" "$SCRIPT_URL" || log_error "下载 $SCRIPT_NAME 失败"
+        else
+            log_error "未安装 curl 或 wget，请安装后重试"
+        fi
+        log_info "成功下载 $SCRIPT_NAME"
+    fi
 
-    read -p "请输入 iKuai 密码: " password
-    [ -z "$password" ] && log_error "密码不能为空"
+    # 验证 ikuai-ip-update.py 是否可执行
+    if ! head -n 1 "$SCRIPT_NAME" | grep -q "^#!/usr/bin/env python3"; then
+        log_error "$SCRIPT_NAME 文件格式错误，缺少 Python shebang 行"
+    fi
 
-    read -p "请输入运营商名称 (按 Enter 使用默认 $DEFAULT_ISP_NAME): " isp_name
-    isp_name=${isp_name:-$DEFAULT_ISP_NAME}
+    # 交互式生成 config.json（如果不存在）
+    if [ ! -f "config.json" ]; then
+        log_warning "未找到 config.json，将通过交互式输入生成配置文件"
+        
+        # 收集用户输入
+        read -p "请输入 iKuai 路由器地址 (例如 http://10.0.0.1): " ikuai_url
+        [ -z "$ikuai_url" ] && log_error "iKuai 路由器地址不能为空"
 
-    # 使用 Python 生成 config.json，确保正确处理特殊字符
-    python3 - << EOF || log_error "生成 config.json 失败，请检查输入值（可能包含特殊字符，如引号或换行符）"
+        read -p "请输入 iKuai 用户名 (按 Enter 使用默认 $DEFAULT_USERNAME): " username
+        username=${username:-$DEFAULT_USERNAME}
+
+        read -p "请输入 iKuai 密码: " password
+        [ -z "$password" ] && log_error "密码不能为空"
+
+        read -p "请输入运营商名称 (按 Enter 使用默认 $DEFAULT_ISP_NAME): " isp_name
+        isp_name=${isp_name:-$DEFAULT_ISP_NAME}
+
+        # 使用 Python 生成 config.json，确保正确处理特殊字符
+        python3 - << EOF || log_error "生成 config.json 失败，请检查输入值（可能包含特殊字符，如引号或换行符）"
 import json
 config = {
     "ikuai_url": "$ikuai_url",
@@ -192,10 +195,10 @@ config = {
 with open("config.json", "w") as f:
     json.dump(config, f, indent=4)
 EOF
-    log_info "已生成 config.json"
+        log_info "已生成 config.json"
 
-    # 生成 config.json.example，包含注释
-    python3 - << EOF || log_error "生成 config.json.example 失败"
+        # 生成 config.json.example，包含注释
+        python3 - << EOF || log_error "生成 config.json.example 失败"
 import json
 config = {
     "ikuai_url": "$ikuai_url",
@@ -232,56 +235,60 @@ for key, value in config.items():
 with open("config.json.example", "w") as f:
     json.dump(output, f, indent=4, ensure_ascii=False)
 EOF
-    log_info "已生成 config.json.example，包含配置项说明"
-fi
-
-# 验证 config.json 格式
-if ! python3 -c "import json; json.load(open('config.json'))" >/dev/null 2>&1; then
-    log_error "config.json 格式错误，请检查 JSON 语法"
-fi
-
-# 检查必要配置项
-required_configs=("ikuai_url" "username" "password" "china_ip_url" "last_ip_file" "timeout" "chunk_size" "isp_name" "schedule_type" "schedule_time" "schedule_day" "schedule_date")
-for key in "${required_configs[@]}"; do
-    if ! python3 -c "import json; data=json.load(open('config.json')); assert '$key' in data" >/dev/null 2>&1; then
-        log_error "config.json 缺少必需配置项: $key"
+        log_info "已生成 config.json.example，包含配置项说明"
     fi
-done
 
-# 验证 schedule_type
-schedule_type=$(python3 -c "import json; print(json.load(open('config.json'))['schedule_type'].lower())")
-if [[ ! "$schedule_type" =~ ^(d|w|m)$ ]]; then
-    log_error "config.json 中的 schedule_type 必须为 d（每天）, w（每周）或 m（每月）"
-fi
+    # 验证 config.json 格式
+    if ! python3 -c "import json; json.load(open('config.json'))" >/dev/null 2>&1; then
+        log_error "config.json 格式错误，请检查 JSON 语法"
+    fi
 
-# 创建安装目录
-log_info "创建安装目录: $INSTALL_DIR"
-mkdir -p "$INSTALL_DIR" || log_error "创建目录 $INSTALL_DIR 失败"
+    # 检查必要配置项
+    required_configs=("ikuai_url" "username" "password" "china_ip_url" "last_ip_file" "timeout" "chunk_size" "isp_name" "schedule_type" "schedule_time" "schedule_day" "schedule_date")
+    for key in "${required_configs[@]}"; do
+        if ! python3 -c "import json; data=json.load(open('config.json')); assert '$key' in data" >/dev/null 2>&1; then
+            log_error "config.json 缺少必需配置项: $key"
+        fi
+    done
 
-# 复制脚本和配置文件
-log_info "复制 $SCRIPT_NAME 和 config.json 到 $INSTALL_DIR"
-cp "$SCRIPT_NAME" "$INSTALL_DIR/" || log_error "复制 $SCRIPT_NAME 失败"
-cp "config.json" "$INSTALL_DIR/" || log_error "复制 config.json 失败"
-cp "config.json.example" "$INSTALL_DIR/" 2>/dev/null || log_info "未找到 config.json.example，跳过复制"
+    # 验证 schedule_type
+    schedule_type=$(python3 -c "import json; print(json.load(open('config.json'))['schedule_type'].lower())")
+    if [[ ! "$schedule_type" =~ ^(d|w|m)$ ]]; then
+        log_error "config.json 中的 schedule_type 必须为 d（每天）, w（每周）或 m（每月）"
+    fi
 
-# 设置文件权限
-log_info "设置文件权限"
-chmod 755 "$INSTALL_DIR/$SCRIPT_NAME" || log_error "设置 $SCRIPT_NAME 权限失败"
-chmod 600 "$INSTALL_DIR/config.json" || log_error "设置 config.json 权限失败"
-chmod 644 "$INSTALL_DIR/config.json.example" 2>/dev/null || true
-chown nobody:nogroup "$INSTALL_DIR/$SCRIPT_NAME" "$INSTALL_DIR/config.json" || log_error "设置文件所有者失败"
-chown nobody:nogroup "$INSTALL_DIR/config.json.example" 2>/dev/null || true
-touch "$INSTALL_DIR/ikuai-ip-update.log" || log_warning "创建日志文件失败"
-chmod 664 "$INSTALL_DIR/ikuai-ip-update.log" || log_warning "设置日志文件权限失败"
-chown nobody:nogroup "$INSTALL_DIR/ikuai-ip-update.log" || log_warning "设置日志文件所有者失败"
+    # 创建安装目录
+    log_info "创建安装目录: $INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR" || log_error "创建目录 $INSTALL_DIR 失败"
 
-# 安装 Python 依赖
-log_info "安装 Python 依赖"
-pip3 install requests tenacity schedule || log_error "安装 Python 依赖失败"
+    # 复制脚本和配置文件
+    log_info "复制 $SCRIPT_NAME 和 config.json 到 $INSTALL_DIR"
+    cp "$SCRIPT_NAME" "$INSTALL_DIR/" || log_error "复制 $SCRIPT_NAME 失败"
+    cp "config.json" "$INSTALL_DIR/" || log_error "复制 config.json 失败"
+    cp "config.json.example" "$INSTALL_DIR/" 2>/dev/null || log_info "未找到 config.json.example，跳过复制"
 
-# 创建 systemd 服务文件
-log_info "创建 systemd 服务文件: $SYSTEMD_SERVICE_FILE"
-cat > "$SYSTEMD_SERVICE_FILE" << EOF
+    # 预创建 last_sync_ip.json
+    touch "$INSTALL_DIR/$DEFAULT_LAST_IP_FILE" || log_warning "创建 $DEFAULT_LAST_IP_FILE 失败"
+
+    # 设置文件权限
+    log_info "设置文件权限"
+    chmod 755 "$INSTALL_DIR/$SCRIPT_NAME" || log_error "设置 $SCRIPT_NAME 权限失败"
+    chmod 600 "$INSTALL_DIR/config.json" || log_error "设置 config.json 权限失败"
+    chmod 644 "$INSTALL_DIR/config.json.example" 2>/dev/null || true
+    chmod 664 "$INSTALL_DIR/$DEFAULT_LAST_IP_FILE" || log_warning "设置 $DEFAULT_LAST_IP_FILE 权限失败"
+    touch "$INSTALL_DIR/ikuai-ip-update.log" || log_warning "创建日志文件失败"
+    chmod 664 "$INSTALL_DIR/ikuai-ip-update.log" || log_warning "设置日志文件权限失败"
+    chown root:root "$INSTALL_DIR/$SCRIPT_NAME" "$INSTALL_DIR/config.json" "$INSTALL_DIR/ikuai-ip-update.log" "$INSTALL_DIR/$DEFAULT_LAST_IP_FILE" || log_error "设置文件所有者失败"
+    chown root:root "$INSTALL_DIR/config.json.example" 2>/dev/null || true
+    chown root:root "$INSTALL_DIR" || log_error "设置目录所有者失败"
+
+    # 安装 Python 依赖
+    log_info "安装 Python 依赖"
+    pip3 install requests tenacity schedule || log_error "安装 Python 依赖失败"
+
+    # 创建 systemd 服务文件
+    log_info "创建 systemd 服务文件: $SYSTEMD_SERVICE_FILE"
+    cat > "$SYSTEMD_SERVICE_FILE" << EOF
 [Unit]
 Description=iKuai IP Update Service
 After=network.target
@@ -293,8 +300,6 @@ WorkingDirectory=$INSTALL_DIR
 Restart=always
 RestartSec=10
 TimeoutStopSec=15
-User=nobody
-Group=nogroup
 StartLimitInterval=60
 StartLimitBurst=5
 
@@ -302,43 +307,48 @@ StartLimitBurst=5
 WantedBy=multi-user.target
 EOF
 
-if [ $? -ne 0 ]; then
-    log_error "创建 systemd 服务文件失败"
-fi
+    if [ $? -ne 0 ]; then
+        log_error "创建 systemd 服务文件失败"
+    fi
 
-# 重新加载 systemd 配置
-log_info "重新加载 systemd 配置"
-systemctl daemon-reload || log_error "重新加载 systemd 配置失败"
+    # 重新加载 systemd 配置
+    log_info "重新加载 systemd 配置"
+    systemctl daemon-reload || log_error "重新加载 systemd 配置失败"
 
-# 启用并启动服务
-log_info "启用并启动 $SERVICE_NAME 服务"
-systemctl enable "$SERVICE_NAME" || log_error "启用 $SERVICE_NAME 服务失败"
-systemctl start "$SERVICE_NAME" || log_error "启动 $SERVICE_NAME 服务失败"
+    # 启用并启动服务
+    log_info "启用并启动 $SERVICE_NAME 服务"
+    systemctl enable "$SERVICE_NAME" || log_error "启用 $SERVICE_NAME 服务失败"
+    systemctl start "$SERVICE_NAME" || log_error "启动 $SERVICE_NAME 服务失败"
 
-# 检查服务状态
-log_info "检查 $SERVICE_NAME 服务状态"
-if systemctl is-active --quiet "$SERVICE_NAME"; then
-    log_info "$SERVICE_NAME 服务已成功启动"
-else
-    log_error "$SERVICE_NAME 服务启动失败，请检查日志: journalctl -u $SERVICE_NAME"
-fi
+    # 检查服务状态
+    log_info "检查 $SERVICE_NAME 服务状态"
+    if systemctl is-active --quiet "$SERVICE_NAME"; then
+        log_info "$SERVICE_NAME 服务已成功启动"
+    else
+        log_error "$SERVICE_NAME 服务启动失败，请检查日志: journalctl -u $SERVICE_NAME"
+    fi
 
-log_info "安装完成！"
-log_info "服务日志位于: $INSTALL_DIR/ikuai-ip-update.log"
-log_info "配置文件位于: $INSTALL_DIR/config.json"
-log_info "配置说明位于: $INSTALL_DIR/config.json.example"
-log_info "您可以编辑 $INSTALL_DIR/config.json 修改以下默认配置："
-log_info "  - IP 列表 URL: $DEFAULT_CHINA_IP_URL"
-log_info "  - 本地 IP 列表文件名: $DEFAULT_LAST_IP_FILE"
-log_info "  - API 请求超时时间: $DEFAULT_TIMEOUT 秒"
-log_info "  - 分块大小: $DEFAULT_CHUNK_SIZE（当前 API 无需分块）"
-log_info "  - 调度周期: $DEFAULT_SCHEDULE_TYPE（每天）"
-log_info "  - 调度时间: $DEFAULT_SCHEDULE_TIME（凌晨 5 点）"
-log_info "  - 每周调度星期: $DEFAULT_SCHEDULE_DAY（仅每周有效）"
-log_info "  - 每月调度日期: $DEFAULT_SCHEDULE_DATE（仅每月有效）"
-log_info "管理服务命令："
-log_info "  - 查看状态: systemctl status $SERVICE_NAME"
-log_info "  - 停止服务: systemctl stop $SERVICE_NAME"
-log_info "  - 重启服务: systemctl restart $SERVICE_NAME"
-log_info "卸载服务命令："
-log_info "  - 运行: $0 --uninstall"
+    log_info "安装完成！"
+    log_info "服务以 root 用户运行"
+    log_info "服务日志位于: $INSTALL_DIR/ikuai-ip-update.log"
+    log_info "配置文件位于: $INSTALL_DIR/config.json"
+    log_info "配置说明位于: $INSTALL_DIR/config.json.example"
+    log_info "您可以编辑 $INSTALL_DIR/config.json 修改以下默认配置："
+    log_info "  - IP 列表 URL: $DEFAULT_CHINA_IP_URL"
+    log_info "  - 本地 IP 列表文件名: $DEFAULT_LAST_IP_FILE"
+    log_info "  - API 请求超时时间: $DEFAULT_TIMEOUT 秒"
+    log_info "  - 分块大小: $DEFAULT_CHUNK_SIZE（当前 API 无需分块）"
+    log_info "  - 调度周期: $DEFAULT_SCHEDULE_TYPE（每天）"
+    log_info "  - 调度时间: $DEFAULT_SCHEDULE_TIME（凌晨 5 点）"
+    log_info "  - 每周调度星期: $DEFAULT_SCHEDULE_DAY（仅每周有效）"
+    log_info "  - 每月调度日期: $DEFAULT_SCHEDULE_DATE（仅每月有效）"
+    log_info "管理服务命令："
+    log_info "  - 查看状态: systemctl status $SERVICE_NAME"
+    log_info "  - 停止服务: systemctl stop $SERVICE_NAME"
+    log_info "  - 重启服务: systemctl restart $SERVICE_NAME"
+    log_info "卸载服务：重新运行脚本并选择选项 2"
+    exit 0
+}
+
+# 显示交互菜单
+show_menu
