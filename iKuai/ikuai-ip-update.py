@@ -22,227 +22,155 @@ logging.basicConfig(
 )
 logger = logging.getLogger()
 
-# 加载配置文件（假设与脚本在同一目录）
-config_path = os.path.join(os.path.dirname(__file__), "config.json")
-try:
-    with open(config_path, "r") as f:
-        config = json.load(f)
-except FileNotFoundError:
-    logger.error(f"配置文件 {config_path} 不存在")
-    exit(1)
-except json.JSONDecodeError:
-    logger.error(f"配置文件 {config_path} 格式错误")
-    exit(1)
-
-# 从 config.json 获取所有配置，无默认值
-required_configs = [
-    "ikuai_url",
-    "username",
-    "password",
-    "china_ip_url",
-    "last_ip_file",
-    "timeout",
-    "chunk_size",
-    "isp_name",
-    "schedule_type",
-    "schedule_time",
-    "schedule_day",
-    "schedule_date"
-]
-for key in required_configs:
-    if key not in config:
-        logger.error(f"配置文件缺少必需项: {key}")
-        exit(1)
-
-IKUAI_URL = config["ikuai_url"]
-USERNAME = config["username"]
-PASSWORD = config["password"]
-CHINA_IP_URL = config["china_ip_url"]
-LAST_IP_FILE = config["last_ip_file"]
-TIMEOUT = config["timeout"]
-CHUNK_SIZE = config["chunk_size"]
-ISP_NAME = config["isp_name"]
-SCHEDULE_TYPE = config["schedule_type"].lower()
-SCHEDULE_TIME = config["schedule_time"]
-SCHEDULE_DAY = config["schedule_day"].lower()
-SCHEDULE_DATE = config["schedule_date"]
-
-# 验证关键配置
-if SCHEDULE_TYPE not in ["d", "w", "m"]:
-    logger.error(f"无效的 schedule_type: {SCHEDULE_TYPE}，必须为 d（每天）, w（每周）或 m（每月）")
-    exit(1)
-if not (1 <= SCHEDULE_DATE <= 28):
-    logger.error(f"无效的 schedule_date: {SCHEDULE_DATE}，必须在 1-28 之间")
-    exit(1)
-if SCHEDULE_DAY not in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]:
-    logger.error(f"无效的 schedule_day: {SCHEDULE_DAY}，必须为 monday, tuesday 等")
-    exit(1)
-try:
-    # 验证 schedule_time 格式 (HH:MM)
-    time.strptime(SCHEDULE_TIME, "%H:%M")
-except ValueError:
-    logger.error(f"无效的 schedule_time: {SCHEDULE_TIME}，必须为 HH:MM 格式")
-    exit(1)
-if not isinstance(TIMEOUT, (int, float)) or TIMEOUT <= 0:
-    logger.error(f"无效的 timeout: {TIMEOUT}，必须为正数")
-    exit(1)
-if not isinstance(CHUNK_SIZE, int) or CHUNK_SIZE <= 0:
-    logger.error(f"无效的 chunk_size: {CHUNK_SIZE}，必须为正整数")
-    exit(1)
-
-# API 端点
-LOGIN_API = f"{IKUAI_URL}/Action/login"
-CUSTOM_ISP_API = f"{IKUAI_URL}/Action/call"
-
-# 全局标志，用于控制服务停止
+# 全局标志和配置
 RUNNING = True
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
+CONFIG_CHECK_INTERVAL = 60
+LAST_CONFIG_MTIME = 0
+CURRENT_CONFIG = None
+CURRENT_SCHEDULE = None
+
+def load_config():
+    global LAST_CONFIG_MTIME, CURRENT_CONFIG
+    try:
+        stat = os.stat(CONFIG_PATH)
+        mtime = stat.st_mtime
+        if mtime != LAST_CONFIG_MTIME:
+            with open(CONFIG_PATH, "r") as f:
+                config = json.load(f)
+            required_configs = [
+                "ikuai_url", "username", "password", "china_ip_url", "last_ip_file",
+                "timeout", "chunk_size", "isp_name", "schedule_type", "schedule_time",
+                "schedule_day", "schedule_date"
+            ]
+            for key in required_configs:
+                if key not in config:
+                    logger.error(f"缺少必需配置项: {key}")
+                    return None
+            if config["schedule_type"].lower() not in ["d", "w", "m"]:
+                logger.error(f"无效 schedule_type: {config['schedule_type']}")
+                return None
+            if not (1 <= config["schedule_date"] <= 28):
+                logger.error(f"无效 schedule_date: {config['schedule_date']}")
+                return None
+            if config["schedule_day"].lower() not in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]:
+                logger.error(f"无效 schedule_day: {config['schedule_day']}")
+                return None
+            try:
+                time.strptime(config["schedule_time"], "%H:%M")
+            except ValueError:
+                logger.error(f"无效 schedule_time: {config['schedule_time']}")
+                return None
+            if not isinstance(config["timeout"], (int, float)) or config["timeout"] <= 0:
+                logger.error(f"无效 timeout: {config['timeout']}")
+                return None
+            if not isinstance(config["chunk_size"], int) or config["chunk_size"] <= 0:
+                logger.error(f"无效 chunk_size: {config['chunk_size']}")
+                return None
+            LAST_CONFIG_MTIME = mtime
+            CURRENT_CONFIG = config
+            logger.info(f"加载配置文件，修改时间: {time.ctime(mtime)}")
+            return config
+        return CURRENT_CONFIG
+    except FileNotFoundError:
+        logger.error(f"配置文件 {CONFIG_PATH} 不存在")
+        return None
+    except json.JSONDecodeError:
+        logger.error(f"配置文件 {CONFIG_PATH} 格式错误")
+        return None
+    except Exception as e:
+        logger.error(f"加载配置文件失败: {e}")
+        return None
 
 def md5_hash(text):
-    """计算文本的 MD5 哈希值。
-
-    Args:
-        text (str): 要加密的文本。
-
-    Returns:
-        str: MD5 哈希值（十六进制）。
-    """
     return hashlib.md5(text.encode('utf-8')).hexdigest()
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-def login():
-    """登录 iKuai 路由器并返回会话对象。
-
-    Returns:
-        requests.Session: 登录成功时的会话对象，失败时返回 None。
-    """
-    logger.info(f"准备登录: {LOGIN_API}")
+def login(config):
+    logger.info(f"登录: {config['ikuai_url']}/Action/login")
     payload = {
-        "username": USERNAME,
-        "passwd": md5_hash(PASSWORD),
+        "username": config["username"],
+        "passwd": md5_hash(config["password"]),
         "pass": str(int(time.time() * 1000)),
         "remember_password": ""
     }
-    try:
-        response = requests.post(LOGIN_API, json=payload, timeout=TIMEOUT)
-        response.raise_for_status()
-        data = response.json()
-        if data.get("Result") == 10000:
-            session = requests.Session()
-            session.cookies.update(response.cookies)
-            logger.info("登录成功")
-            return session
-        logger.error(f"登录失败: {data.get('ErrMsg')}")
-        return None
-    except Exception as e:
-        logger.error(f"登录错误: {e}")
-        return None
+    response = requests.post(f"{config['ikuai_url']}/Action/login", json=payload, timeout=config["timeout"])
+    response.raise_for_status()
+    data = response.json()
+    if data.get("Result") == 10000:
+        session = requests.Session()
+        session.cookies.update(response.cookies)
+        logger.info("登录成功")
+        return session
+    logger.error(f"登录失败: {data.get('ErrMsg')}")
+    return None
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-def fetch_china_ip_list():
-    """从指定 URL 获取中国 IP 列表。
-
-    Returns:
-        list: 有效 IP 范围列表，失败或空时返回 None。
-    """
-    logger.info(f"获取中国 IP 列表: {CHINA_IP_URL}")
-    try:
-        response = requests.get(CHINA_IP_URL, timeout=TIMEOUT)
-        response.raise_for_status()
-        ip_list = []
-        for line in response.text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                ipaddress.ip_network(line)  # 验证 CIDR 格式
-                ip_list.append(line)
-            except ValueError:
-                logger.warning(f"无效 IP 范围已跳过: {line}")
-        if not ip_list:
-            logger.error("获取到的 IP 列表为空")
-            return None
-        logger.info(f"获取到 {len(ip_list)} 条 IP 记录")
-        return ip_list
-    except Exception as e:
-        logger.error(f"获取 IP 列表失败: {e}")
-        return None
-
-def load_last_ip_list():
-    """加载上次保存的 IP 列表。
-
-    Returns:
-        list: 保存的 IP 列表，文件不存在或失败时返回空列表。
-    """
-    last_ip_file_path = os.path.join(os.path.dirname(__file__), LAST_IP_FILE)
-    if os.path.exists(last_ip_file_path):
+def fetch_china_ip_list(config):
+    logger.info(f"获取 IP 列表: {config['china_ip_url']}")
+    response = requests.get(config["china_ip_url"], timeout=config["timeout"])
+    response.raise_for_status()
+    ip_list = []
+    for line in response.text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
         try:
-            with open(last_ip_file_path, 'r') as f:
+            ipaddress.ip_network(line)
+            ip_list.append(line)
+        except ValueError:
+            logger.warning(f"无效 IP: {line}")
+    if not ip_list:
+        logger.error("IP 列表为空")
+        return None
+    logger.info(f"获取 {len(ip_list)} 条 IP")
+    return ip_list
+
+def load_last_ip_list(config):
+    path = os.path.join(os.path.dirname(__file__), config["last_ip_file"])
+    if os.path.exists(path):
+        try:
+            with open(path, 'r') as f:
                 return json.load(f)
         except Exception as e:
-            logger.error(f"读取上次 IP 列表失败: {e}")
+            logger.error(f"读取 IP 列表失败: {e}")
     return []
 
-def save_last_ip_list(ip_list):
-    """保存当前 IP 列表到本地文件。
-
-    Args:
-        ip_list (list): 要保存的 IP 列表。
-    """
-    last_ip_file_path = os.path.join(os.path.dirname(__file__), LAST_IP_FILE)
+def save_last_ip_list(config, ip_list):
+    path = os.path.join(os.path.dirname(__file__), config["last_ip_file"])
     try:
-        with open(last_ip_file_path, 'w') as f:
+        with open(path, 'w') as f:
             json.dump(ip_list, f)
-        logger.info("成功保存当前的 IP 列表")
+        logger.info("保存 IP 列表成功")
     except Exception as e:
         logger.error(f"保存 IP 列表失败: {e}")
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-def get_isp_id(session, isp_name):
-    """查询指定运营商的 ID。
-
-    Args:
-        session (requests.Session): 已认证的会话对象。
-        isp_name (str): 运营商名称。
-
-    Returns:
-        int: 运营商 ID，未找到或失败时返回 None。
-    """
-    logger.info(f"查询 {isp_name} 运营商 ID")
+def get_isp_info(session, isp_name, config):
+    logger.info(f"查询 {isp_name} 运营商信息")
     payload = {
         "func_name": "custom_isp",
         "action": "show",
         "param": {"TYPE": "data,total", "limit": "0,1000"}
     }
-    try:
-        response = session.post(CUSTOM_ISP_API, json=payload, headers={"Content-Type": "application/json"}, timeout=TIMEOUT)
-        response.raise_for_status()
-        data = response.json()
-        if data.get("Result") != 30000:
-            logger.error(f"获取运营商信息失败: {data.get('ErrMsg')}")
-            return None
-        for isp in data.get("Data", {}).get("data", []):
-            if isinstance(isp, dict) and isp.get("name") == isp_name:
-                logger.info(f"找到 {isp_name} 运营商 ID: {isp.get('id')}")
-                return isp.get("id")
-        logger.info(f"未找到 {isp_name} 运营商")
-        return None
-    except Exception as e:
-        logger.error(f"获取 {isp_name} 运营商 ID 失败: {e}")
-        return None
+    response = session.post(f"{config['ikuai_url']}/Action/call", json=payload, headers={"Content-Type": "application/json"}, timeout=config["timeout"])
+    response.raise_for_status()
+    data = response.json()
+    if data.get("Result") != 30000:
+        logger.error(f"获取运营商失败: {data.get('ErrMsg')}")
+        return None, 0
+    for isp in data.get("Data", {}).get("data", []):
+        if isinstance(isp, dict) and isp.get("name") == isp_name:
+            ipgroup = isp.get("ipgroup", "")
+            ip_count = len(ipgroup.split(",")) if ipgroup else 0
+            logger.info(f"找到 {isp_name} ID: {isp.get('id')}，IP 条数: {ip_count}")
+            return isp.get("id"), ip_count
+    logger.info(f"未找到 {isp_name}")
+    return None, 0
 
-def update_custom_isp(session, ip_list, isp_name, chunk_size=CHUNK_SIZE):
-    """更新或创建指定运营商的 IP 列表。
-
-    Args:
-        session (requests.Session): 已认证的会话对象。
-        ip_list (list): IP 范围列表。
-        isp_name (str): 运营商名称。
-        chunk_size (int): 备用分块大小（当前未使用）。
-    """
-    logger.info(f"开始更新 {isp_name} 运营商，总计 {len(ip_list)} 条 IP 范围")
-    isp_id = get_isp_id(session, isp_name)
-    
-    # 合并所有 IP 范围为单一字符串
+def update_custom_isp(session, ip_list, isp_name, config):
+    logger.info(f"更新 {isp_name}，{len(ip_list)} 条 IP")
+    isp_id, _ = get_isp_info(session, isp_name, config)
     ipgroup_str = ",".join(ip_list)
     payload = {
         "func_name": "custom_isp",
@@ -256,90 +184,119 @@ def update_custom_isp(session, ip_list, isp_name, chunk_size=CHUNK_SIZE):
             "ipgroup": ipgroup_str
         }
     }
-    headers = {"Content-Type": "application/json"}
-    try:
-        response = session.post(CUSTOM_ISP_API, json=payload, headers=headers, timeout=TIMEOUT)
-        response.raise_for_status()
-        result = response.json()
-        if result.get("Result") in [10000, 30000]:
-            logger.info(f"{isp_name} 运营商更新成功")
-        else:
-            logger.error(f"更新失败: {result.get('ErrMsg')} (Result: {result.get('Result')})")
-    except Exception as e:
-        logger.error(f"更新 {isp_name} 运营商出错: {e}")
+    response = session.post(f"{config['ikuai_url']}/Action/call", json=payload, headers={"Content-Type": "application/json"}, timeout=config["timeout"])
+    response.raise_for_status()
+    result = response.json()
+    if result.get("Result") not in [10000, 30000]:
+        logger.error(f"更新失败: {result.get('ErrMsg')} (Result: {result.get('Result')})")
+        return False
+    isp_id, isp_ip_count = get_isp_info(session, isp_name, config)
+    expected_count = len(ip_list)
+    if isp_id and isp_ip_count == expected_count:
+        logger.info(f"验证成功: {isp_name} IP 条数 {isp_ip_count} 匹配预期 {expected_count}")
+        return True
+    logger.error(f"验证失败: {isp_name} IP 条数 {isp_ip_count} 不匹配预期 {expected_count}")
+    return False
 
-def update_job():
-    """执行 IP 列表更新任务。"""
-    logger.info("开始执行更新任务")
-    session = login()
+def update_job(config):
+    logger.info("开始更新任务")
+    if not config:
+        logger.error("无有效配置，跳过任务")
+        return
+    china_ip_list = fetch_china_ip_list(config)
+    if not china_ip_list:
+        logger.error("无 IP 列表，跳过更新")
+        return
+    last_ip_list = load_last_ip_list(config)
+    if sorted(china_ip_list) == sorted(last_ip_list):
+        logger.info("远程 IP 列表无变化，跳过更新")
+        return
+    logger.info(f"远程 IP 列表变更（新: {len(china_ip_list)} 条，旧: {len(last_ip_list)} 条），开始更新")
+    session = login(config)
     if session:
         try:
-            china_ip_list = fetch_china_ip_list()
-            if china_ip_list:
-                last_ip_list = load_last_ip_list()
-                isp_id = get_isp_id(session, ISP_NAME)
-                if china_ip_list != last_ip_list or isp_id is None:
-                    update_custom_isp(session, china_ip_list, ISP_NAME)
-                    save_last_ip_list(china_ip_list)
-                else:
-                    logger.info(f"IP 列表没有变化，且 {ISP_NAME} 运营商已存在，无需更新")
+            if update_custom_isp(session, china_ip_list, config["isp_name"], config):
+                save_last_ip_list(config, china_ip_list)
             else:
-                logger.error("未获取到 IP 列表，不更新路由器设置")
+                logger.error("更新未成功，不保存新 IP 列表")
         except Exception as e:
-            logger.error(f"更新任务失败: {e}")
+            logger.error(f"任务失败: {e}")
         finally:
             session.close()
     else:
-        logger.error("登录失败，无法执行更新任务")
+        logger.error("登录失败，跳过任务")
     logger.info("更新任务结束")
 
-def schedule_jobs():
-    """根据配置文件设置调度任务。"""
-    logger.info(f"设置调度任务: {SCHEDULE_TYPE} 周期，时间 {SCHEDULE_TIME}")
+def schedule_jobs(config):
+    logger.info(f"设置调度: {config['schedule_type']} 周期，时间 {config['schedule_time']}")
     try:
-        if SCHEDULE_TYPE == "d":
-            schedule.every().day.at(SCHEDULE_TIME).do(update_job)
-        elif SCHEDULE_TYPE == "w":
-            getattr(schedule.every(), SCHEDULE_DAY).at(SCHEDULE_TIME).do(update_job)
-        elif SCHEDULE_TYPE == "m":
-            schedule.every(1).months.at(f"{SCHEDULE_DATE:02d} {SCHEDULE_TIME}").do(update_job)
+        schedule.clear()
+        if config["schedule_type"] == "d":
+            schedule.every().day.at(config["schedule_time"]).do(update_job, config)
+        elif config["schedule_type"] == "w":
+            getattr(schedule.every(), config["schedule_day"].lower()).at(config["schedule_time"]).do(update_job, config)
+        elif config["schedule_type"] == "m":
+            schedule.every(1).months.at(f"{config['schedule_date']:02d} {config['schedule_time']}").do(update_job, config)
         else:
-            logger.error(f"不支持的调度类型: {SCHEDULE_TYPE}")
-            exit(1)
+            logger.error(f"无效调度类型: {config['schedule_type']}")
+            return False
+        logger.info(f"调度任务已设置: {config['schedule_type']} {config['schedule_time']}")
+        return True
     except schedule.ScheduleValueError as e:
-        logger.error(f"调度配置错误: {e}")
-        exit(1)
+        logger.error(f"调度错误: {e}")
+        return False
 
 def run_scheduler():
-    """运行调度器，持续检查待执行任务。"""
-    schedule_jobs()
+    config = load_config()
+    if not config or not schedule_jobs(config):
+        logger.error("初始配置或调度失败，退出")
+        return
+    global CURRENT_SCHEDULE, CURRENT_CONFIG
+    CURRENT_SCHEDULE = {
+        "schedule_type": config["schedule_type"],
+        "schedule_time": config["schedule_time"],
+        "schedule_day": config["schedule_day"],
+        "schedule_date": config["schedule_date"]
+    }
+    CURRENT_CONFIG = config
+    last_check = 0
     while RUNNING:
+        if time.time() - last_check >= CONFIG_CHECK_INTERVAL:
+            new_config = load_config()
+            if new_config:
+                new_schedule = {
+                    "schedule_type": new_config["schedule_type"],
+                    "schedule_time": new_config["schedule_time"],
+                    "schedule_day": new_config["schedule_day"],
+                    "schedule_date": new_config["schedule_date"]
+                }
+                if not CURRENT_SCHEDULE or new_schedule != CURRENT_SCHEDULE:
+                    logger.info("调度配置变更，重新设置")
+                    if schedule_jobs(new_config):
+                        CURRENT_SCHEDULE = new_schedule
+                        CURRENT_CONFIG = new_config
+                    else:
+                        logger.error("重新设置调度失败，使用旧配置")
+            last_check = time.time()
         schedule.run_pending()
-        time.sleep(60)  # 每分钟检查一次
+        time.sleep(5)
 
 def signal_handler(sig, frame):
-    """处理终止信号，优雅退出。"""
     global RUNNING
-    logger.info("收到终止信号，正在停止服务...")
+    logger.info("收到终止信号，停止服务...")
     RUNNING = False
 
 if __name__ == "__main__":
     logger.info("iKuai IP 更新服务启动")
-    # 注册信号处理
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    
-    # 在单独线程中运行调度器
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
-    
-    # 保持主线程运行，直到收到终止信号
     try:
         while RUNNING:
             time.sleep(1)
     except KeyboardInterrupt:
-        logger.info("收到键盘中断，停止服务")
+        logger.info("键盘中断，停止服务")
         RUNNING = False
-    
     scheduler_thread.join()
     logger.info("iKuai IP 更新服务停止")
