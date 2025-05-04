@@ -4,7 +4,7 @@
 # 适用于基于 systemd 的 Linux 系统（如 Ubuntu、CentOS 等）
 # 支持从网络下载 ikuai-ip-update.py 或使用本地文件
 # 如果缺少 config.json，将交互式生成配置文件
-# 中国 IP 列表 URL 支持默认值
+# 中国 IP 列表 URL 和本地 IP 列表文件名支持默认值
 
 # 目标安装目录
 INSTALL_DIR="/opt/iksip"
@@ -13,6 +13,7 @@ SYSTEMD_SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 SCRIPT_URL="https://raw.githubusercontent.com/LidaoNote/OpenCode/refs/heads/main/iKuai/ikuai-ip-update.py"
 SCRIPT_NAME="ikuai-ip-update.py"
 DEFAULT_CHINA_IP_URL="https://raw.githubusercontent.com/LidaoNote/OpenCode/refs/heads/main/china_ip.txt"
+DEFAULT_LAST_IP_FILE="last_sync_ip.json"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -99,12 +100,12 @@ if [ ! -f "config.json" ]; then
     [ -z "$password" ] && log_error "密码不能为空"
     config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['password']='$password'; print(json.dumps(d))")
 
-    read -p "请输入中国 IP 列表 URL (按 Enter 使用默认 $DEFAULT_CHINA_IP_URL): " china_ip_url
+    read -p "请输入 IP 列表 URL (按 Enter 使用默认 $DEFAULT_CHINA_IP_URL): " china_ip_url
     china_ip_url=${china_ip_url:-$DEFAULT_CHINA_IP_URL}
     config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['china_ip_url']='$china_ip_url'; print(json.dumps(d))")
 
-    read -p "请输入本地 IP 列表文件名 (例如 last_china_ip.json): " last_ip_file
-    [ -z "$last_ip_file" ] && log_error "本地 IP 列表文件名不能为空"
+    read -p "请输入本地 IP 列表文件名 (按 Enter 使用默认 $DEFAULT_LAST_IP_FILE，将在首次运行时生成): " last_ip_file
+    last_ip_file=${last_ip_file:-$DEFAULT_LAST_IP_FILE}
     config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['last_ip_file']='$last_ip_file'; print(json.dumps(d))")
 
     read -p "请输入 API 请求超时时间（秒，例如 10）: " timeout
