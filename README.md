@@ -2,36 +2,56 @@
 
 ## 引言
 
-OpenCode 仓库由 离岛 [Youtube 频道](https://youtube.com/@Lidao) 维护，是一个集自动化脚本、实用工具和示例代码于一体的资源库。
+OpenCode 仓库由离岛维护，关联 [YouTube 频道](https://youtube.com/@Lidao)，是一个集自动化脚本、实用工具和示例代码于一体的资源库，旨在帮助用户提升效率并学习编程技术。
 
 ## 仓库结构
 
-仓库包含以下目录和文件，基于最新信息整理如下：
+仓库包含以下目录和文件：
 
 ### 目录
 
 | 目录名称            | 描述                                                                 |
 |---------------------|----------------------------------------------------------------------|
-| AdGuardHome         | 包含与 AdGuardHome 相关的配置文件和脚本。                             |
-| FantastiqueSansMono | 包含 FantastiqueSansMono 字体文件相关资源，适用于界面设计或文档。     |
-| SmartDNS            | 包含 SmartDNS 相关的配置文件或脚本，用于智能 DNS 解析和网络优化。     |
-| SmartDash           | 这是 SmartDash 相关的工具和脚本，这事一个简单的 SmartDNS 仪表盘。     |
-| miniChat            | 一个小型聊天应用的代码，用于学习或测试通信功能。                      |
+| AdGuardHome         | 包含与 AdGuardHome 相关的配置文件和脚本。                            |
+| FantastiqueSansMono | 包含 FantastiqueSansMono 字体文件相关资源，适用于界面设计或文档。    |
+| SmartDNS            | 包含 SmartDNS 相关的配置文件或脚本，用于智能 DNS 解析和网络优化。    |
+| SmartDash           | 包含 SmartDash 相关的工具和脚本，这是一个简单的 SmartDNS 仪表盘。    |
+| miniChat            | 一个小型聊天应用的代码，用于学习或测试通信功能。                     |
 
 ### 文件
 
 | 文件名称            | 描述                                                                 |
 |---------------------|----------------------------------------------------------------------|
-| ImmortalWrt_opkg.txt| ImmortalWrt 系统的 opkg ，包含国外和国内源地址。                |
-| README.md           | 仓库的主说明文档，提供基本信息和使用指南。                       |
-| agh_admin.py        | AdGuardHome 管理脚本，用于设置 AdGuardHome 的管理员账号和密码。  |
-| bcrypt10.py         | 使用 bcrypt 进行加密的 Python 脚本，能进行 10 次密码哈希。       |
-| block.txt           | 黑名单文件，包含国内屏蔽的 IP 或域名。                           |
-| china_ip.txt        | 中国 IP 地址列表。                                              |
-| dns.sh              | DNS 相关脚本，用于一键 SmartDNS / AdGuardHome 安装和卸载。       |
-| doh.py              | DNS over HTTPS (DoH) 相关脚本，用于加密 DNS 查询。              |
-| unique_ip.txt       | DNS 污染后的 IP 地址返回列表，来源是维基百科。                   |
+| ImmortalWrt_opkg.txt| ImmortalWrt 系统的 opkg 包列表，包含国外和国内源地址。               |
+| README.md           | 仓库的主说明文档，提供基本信息和使用指南。                          |
+| agh_admin.py        | AdGuardHome 管理脚本，用于设置 AdGuardHome 的管理员账号和密码。     |
+| bcrypt10.py         | 使用 bcrypt 进行加密的 Python 脚本，能进行 10 次密码哈希。          |
+| block.txt           | 黑名单文件，包含国内屏蔽的 IP 或域名。                              |
+| china_ip.txt        | 中国 IP 地址列表。                                                 |
+| dns.sh              | DNS 相关脚本，用于一键 SmartDNS / AdGuardHome 安装和卸载。          |
+| doh.py              | DNS over HTTPS (DoH) 相关脚本，用于加密 DNS 查询。                 |
+| unique_ip.txt       | DNS 污染后的 IP 地址返回列表，来源是维基百科。                      |
 
+## 使用方法
+
+要使用 OpenCode 仓库中的脚本和工具，请按照以下步骤操作：
+
+1. **克隆仓库**：
+   ```bash
+   git clone https://github.com/LidaoNote/OpenCode.git
+   ```
+2. **导航目录**：
+   进入相关目录（如 `AdGuardHome`、`SmartDNS` 等）或直接使用根目录文件。
+3. **安装依赖**：
+   确保安装所需依赖。例如，Python 脚本可能需要安装特定库：
+   ```bash
+   pip install bcrypt  # 示例：安装 bcrypt 库以运行 bcrypt10.py
+   ```
+4. **运行脚本**：
+   根据需要执行脚本。例如：
+   ```bash
+   python agh_admin.py
+   ```
 
 ## 贡献指南
 
@@ -45,8 +65,9 @@ OpenCode 仓库由 离岛 [Youtube 频道](https://youtube.com/@Lidao) 维护，
 
 ## 许可证
 
-仓库的许可证信息未在现有描述中明确说明。用户应检查仓库中的 LICENSE 文件以了解代码的使用、修改和分发的具体条款。
+OpenCode 仓库中的代码允许自由修改和分发，但如果用于商业用途，需获得作者的明确授权。请通过 [GitHub Issues](https://github.com/LidaoNote/OpenCode/issues) 或 YouTube 频道关联的联系方式与作者沟通授权事宜。
 
-**引用**：
+## 引用
 
 - [OpenCode GitHub 仓库](https://github.com/LidaoNote/OpenCode)
+- [离岛 YouTube 频道](https://youtube.com/@Lidao)
