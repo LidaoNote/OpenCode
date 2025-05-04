@@ -2,7 +2,7 @@
 
 ## 引言
 
-OpenCode 仓库由 离岛[GitHub](https://github.com/LidaoNote/OpenCode) 维护，托管于 [GitHub](https://github.com/LidaoNote/OpenCode)，是一个集自动化脚本、实用工具和示例代码于一体的资源库。
+OpenCode 仓库由 离岛[Youtube](https://github.com/LidaoNote/OpenCode) 维护，是一个集自动化脚本、实用工具和示例代码于一体的资源库。
 
 ## 仓库结构
 
