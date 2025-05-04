@@ -2,7 +2,7 @@
 
 # iKuai IP 更新服务一键安装脚本
 # 适用于基于 systemd 的 Linux 系统（如 Ubuntu、CentOS 等）
-# 支持从网络下载 ikuai-ip-update.py 或使用本地文件
+# 支持安装、卸载、从网络下载 ikuai-ip-update.py 或使用本地文件
 # 如果缺少 config.json，将交互式生成标准 JSON 配置文件，仅要求用户输入必要字段
 # username 和 isp_name 支持默认值，其他字段使用默认值，配置说明在 config.json.example 中
 
@@ -43,14 +43,79 @@ log_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
+# 使用说明
+usage() {
+    echo "使用方法: $0 [选项]"
+    echo "选项:"
+    echo "  --install     安装 iKuai IP 更新服务（默认）"
+    echo "  --uninstall   卸载 iKuai IP 更新服务，删除服务和配置文件"
+    echo "  --help        显示此帮助信息"
+    exit 0
+}
+
+# 卸载服务
+uninstall_service() {
+    log_info "开始卸载 $SERVICE_NAME 服务"
+    
+    # 停止服务
+    if systemctl is-active --quiet "$SERVICE_NAME"; then
+        log_info "停止 $SERVICE_NAME 服务"
+        systemctl stop "$SERVICE_NAME" || log_warning "停止 $SERVICE_NAME 服务失败"
+    fi
+    
+    # 禁用服务
+    if systemctl is-enabled --quiet "$SERVICE_NAME"; then
+        log_info "禁用 $SERVICE_NAME 服务"
+        systemctl disable "$SERVICE_NAME" || log_warning "禁用 $SERVICE_NAME 服务失败"
+    fi
+    
+    # 删除服务文件
+    if [ -f "$SYSTEMD_SERVICE_FILE" ]; then
+        log_info "删除服务文件: $SYSTEMD_SERVICE_FILE"
+        rm -f "$SYSTEMD_SERVICE_FILE" || log_warning "删除服务文件失败"
+        systemctl daemon-reload || log_warning "重新加载 systemd 配置失败"
+    fi
+    
+    # 删除安装目录
+    if [ -d "$INSTALL_DIR" ]; then
+        log_warning "即将删除安装目录: $INSTALL_DIR"
+        read -p "确认删除所有配置文件和日志？(y/N): " confirm
+        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            rm -rf "$INSTALL_DIR" || log_warning "删除安装目录失败"
+            log_info "已删除安装目录: $INSTALL_DIR"
+        else
+            log_info "取消删除安装目录"
+        fi
+    fi
+    
+    log_info "$SERVICE_NAME 服务卸载完成"
+    exit 0
+}
+
 # 检查是否为 root 用户
 if [ "$(id -u)" -ne 0 ]; then
     log_error "请以 root 用户或使用 sudo 运行此脚本"
 fi
 
+# 解析命令行参数
+case "$1" in
+    --install|"")
+        # 默认执行安装
+        ;;
+    --uninstall)
+        uninstall_service
+        ;;
+    --help)
+        usage
+        ;;
+    *)
+        log_error "未知选项: $1。使用 --help 查看帮助"
+        ;;
+esac
+
 # 检查系统是否支持 systemd
 if ! command -v systemctl >/dev/null 2>&1; then
-    log_error "此脚本仅支持基于 systemd 的系统（如 Ubuntu、CentOS）"
+    log_error "此脚本仅支持基于 systemd 的系统（如 Ubuntu、CentOS)"
 fi
 
 # 检查 Python 3 是否安装
@@ -160,7 +225,6 @@ comments = {
     "schedule_day": "每周调度星期，仅在 schedule_type=w 时有效，可为 monday, tuesday, wednesday, thursday, friday, saturday, sunday，默认为 monday",
     "schedule_date": "每月调度日期，仅在 schedule_type=m 时有效，范围 1-28，默认为 1（每月 1 号）"
 }
-# 生成带注释的 JSON 字符串
 output = []
 for key, value in config.items():
     output.append({"// {}".format(key): comments[key]})
@@ -207,6 +271,9 @@ chmod 600 "$INSTALL_DIR/config.json" || log_error "设置 config.json 权限失�
 chmod 644 "$INSTALL_DIR/config.json.example" 2>/dev/null || true
 chown nobody:nogroup "$INSTALL_DIR/$SCRIPT_NAME" "$INSTALL_DIR/config.json" || log_error "设置文件所有者失败"
 chown nobody:nogroup "$INSTALL_DIR/config.json.example" 2>/dev/null || true
+touch "$INSTALL_DIR/ikuai-ip-update.log" || log_warning "创建日志文件失败"
+chmod 664 "$INSTALL_DIR/ikuai-ip-update.log" || log_warning "设置日志文件权限失败"
+chown nobody:nogroup "$INSTALL_DIR/ikuai-ip-update.log" || log_warning "设置日志文件所有者失败"
 
 # 安装 Python 依赖
 log_info "安装 Python 依赖"
@@ -220,11 +287,16 @@ Description=iKuai IP Update Service
 After=network.target
 
 [Service]
+Type=simple
 ExecStart=/usr/bin/python3 $INSTALL_DIR/$SCRIPT_NAME
 WorkingDirectory=$INSTALL_DIR
 Restart=always
+RestartSec=10
+TimeoutStopSec=15
 User=nobody
 Group=nogroup
+StartLimitInterval=60
+StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target
@@ -268,3 +340,5 @@ log_info "管理服务命令："
 log_info "  - 查看状态: systemctl status $SERVICE_NAME"
 log_info "  - 停止服务: systemctl stop $SERVICE_NAME"
 log_info "  - 重启服务: systemctl restart $SERVICE_NAME"
+log_info "卸载服务命令："
+log_info "  - 运行: $0 --uninstall"
