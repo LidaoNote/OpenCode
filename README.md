@@ -44,8 +44,7 @@ OpenCode 仓库由离岛维护，关联 [YouTube 频道](https://youtube.com/@Li
 
 ## 许可证
 
-OpenCode 仓库中的代码允许自由修改和分发，但如果用于商业用途，需获得作者的明确授权。
-请通过 [GitHub Issues](https://github.com/LidaoNote/OpenCode/issues) 或 YouTube 频道关联的联系方式与作者沟通授权事宜。
+OpenCode 仓库中的代码允许自由修改和分发，但如果用于商业用途，需获得作者的明确授权。请通过 [GitHub Issues](https://github.com/LidaoNote/OpenCode/issues) 或 YouTube 频道关联的联系方式与作者沟通授权事宜。
 
 ## 引用
 
