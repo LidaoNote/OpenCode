@@ -1,0 +1,14 @@
+{
+    "ikuai_url": "http://10.0.0.1",
+    "username": "admin",
+    "password": "admin",
+    "china_ip_url": "https://raw.githubusercontent.com/LidaoNote/OpenCode/refs/heads/main/china_ip.txt",
+    "last_ip_file": "last_china_ip.json",
+    "timeout": 10,
+    "chunk_size": 10000,
+    "isp_name": "CN",
+    "schedule_type": "d",
+    "schedule_time": "00:00",
+    "schedule_day": "monday",
+    "schedule_date": 1
+}
