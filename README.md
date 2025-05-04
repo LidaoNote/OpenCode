@@ -32,27 +32,6 @@ OpenCode 仓库由离岛维护，关联 [YouTube 频道](https://youtube.com/@Li
 | doh.py              | DNS over HTTPS (DoH) 相关脚本，用于加密 DNS 查询。                 |
 | unique_ip.txt       | DNS 污染后的 IP 地址返回列表，来源是维基百科。                      |
 
-## 使用方法
-
-要使用 OpenCode 仓库中的脚本和工具，请按照以下步骤操作：
-
-1. **克隆仓库**：
-   ```bash
-   git clone https://github.com/LidaoNote/OpenCode.git
-   ```
-2. **导航目录**：
-   进入相关目录（如 `AdGuardHome`、`SmartDNS` 等）或直接使用根目录文件。
-3. **安装依赖**：
-   确保安装所需依赖。例如，Python 脚本可能需要安装特定库：
-   ```bash
-   pip install bcrypt  # 示例：安装 bcrypt 库以运行 bcrypt10.py
-   ```
-4. **运行脚本**：
-   根据需要执行脚本。例如：
-   ```bash
-   python agh_admin.py
-   ```
-
 ## 贡献指南
 
 欢迎为 OpenCode 仓库贡献代码或建议。用户可以通过以下方式参与：
