@@ -16,7 +16,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler(os.path.join(os.path.dirname(__file__), "ikuai-ip-update.log")),
+        logging.FileHandler("ikuai-ip-update.log"),
         logging.StreamHandler()
     ]
 )
@@ -67,9 +67,9 @@ SCHEDULE_TIME = config["schedule_time"]
 SCHEDULE_DAY = config["schedule_day"].lower()
 SCHEDULE_DATE = config["schedule_date"]
 
-# 验证配置有效性
-if SCHEDULE_TYPE not in ["daily", "weekly", "monthly"]:
-    logger.error(f"无效的 schedule_type: {SCHEDULE_TYPE}，必须为 daily, weekly 或 monthly")
+# 验证关键配置
+if SCHEDULE_TYPE not in ["d", "w", "m"]:
+    logger.error(f"无效的 schedule_type: {SCHEDULE_TYPE}，必须为 d（每天）, w（每周）或 m（每月）")
     exit(1)
 if not (1 <= SCHEDULE_DATE <= 28):
     logger.error(f"无效的 schedule_date: {SCHEDULE_DATE}，必须在 1-28 之间")
@@ -78,6 +78,7 @@ if SCHEDULE_DAY not in ["monday", "tuesday", "wednesday", "thursday", "friday", 
     logger.error(f"无效的 schedule_day: {SCHEDULE_DAY}，必须为 monday, tuesday 等")
     exit(1)
 try:
+    # 验证 schedule_time 格式 (HH:MM)
     time.strptime(SCHEDULE_TIME, "%H:%M")
 except ValueError:
     logger.error(f"无效的 schedule_time: {SCHEDULE_TIME}，必须为 HH:MM 格式")
@@ -87,9 +88,6 @@ if not isinstance(TIMEOUT, (int, float)) or TIMEOUT <= 0:
     exit(1)
 if not isinstance(CHUNK_SIZE, int) or CHUNK_SIZE <= 0:
     logger.error(f"无效的 chunk_size: {CHUNK_SIZE}，必须为正整数")
-    exit(1)
-if not IKUAI_URL.startswith("http://") and not IKUAI_URL.startswith("https://"):
-    logger.error(f"无效的 ikuai_url: {IKUAI_URL}，必须以 http:// 或 https:// 开头")
     exit(1)
 
 # API 端点
@@ -239,37 +237,36 @@ def update_custom_isp(session, ip_list, isp_name, chunk_size=CHUNK_SIZE):
         session (requests.Session): 已认证的会话对象。
         ip_list (list): IP 范围列表。
         isp_name (str): 运营商名称。
-        chunk_size (int): 每次 API 调用的 IP 列表分块大小。
+        chunk_size (int): 备用分块大小（当前未使用）。
     """
-    logger.info(f"开始更新 {isp_name} 运营商")
+    logger.info(f"开始更新 {isp_name} 运营商，总计 {len(ip_list)} 条 IP 范围")
     isp_id = get_isp_id(session, isp_name)
     
-    for i in range(0, len(ip_list), chunk_size):
-        chunk = ip_list[i:i + chunk_size]
-        ipgroup_str = ",".join(chunk)
-        payload = {
-            "func_name": "custom_isp",
-            "action": "edit" if isp_id else "add",
-            "param": {
-                "id": isp_id,
-                "name": isp_name,
-                "ipgroup": ipgroup_str
-            } if isp_id else {
-                "name": isp_name,
-                "ipgroup": ipgroup_str
-            }
+    # 合并所有 IP 范围为单一字符串
+    ipgroup_str = ",".join(ip_list)
+    payload = {
+        "func_name": "custom_isp",
+        "action": "edit" if isp_id else "add",
+        "param": {
+            "id": isp_id,
+            "name": isp_name,
+            "ipgroup": ipgroup_str
+        } if isp_id else {
+            "name": isp_name,
+            "ipgroup": ipgroup_str
         }
-        headers = {"Content-Type": "application/json"}
-        try:
-            response = session.post(CUSTOM_ISP_API, json=payload, headers=headers, timeout=TIMEOUT)
-            response.raise_for_status()
-            result = response.json()
-            if result.get("Result") in [10000, 30000]:
-                logger.info(f"{isp_name} 运营商分块 {i//chunk_size + 1} 更新成功 (Result: {result.get('Result')})")
-            else:
-                logger.error(f"更新失败: {result.get('ErrMsg')} (Result: {result.get('Result')})")
-        except Exception as e:
-            logger.error(f"更新 {isp_name} 运营商分块 {i//chunk_size + 1} 出错: {e}")
+    }
+    headers = {"Content-Type": "application/json"}
+    try:
+        response = session.post(CUSTOM_ISP_API, json=payload, headers=headers, timeout=TIMEOUT)
+        response.raise_for_status()
+        result = response.json()
+        if result.get("Result") in [10000, 30000]:
+            logger.info(f"{isp_name} 运营商更新成功")
+        else:
+            logger.error(f"更新失败: {result.get('ErrMsg')} (Result: {result.get('Result')})")
+    except Exception as e:
+        logger.error(f"更新 {isp_name} 运营商出错: {e}")
 
 def update_job():
     """执行 IP 列表更新任务。"""
@@ -300,11 +297,11 @@ def schedule_jobs():
     """根据配置文件设置调度任务。"""
     logger.info(f"设置调度任务: {SCHEDULE_TYPE} 周期，时间 {SCHEDULE_TIME}")
     try:
-        if SCHEDULE_TYPE == "daily":
+        if SCHEDULE_TYPE == "d":
             schedule.every().day.at(SCHEDULE_TIME).do(update_job)
-        elif SCHEDULE_TYPE == "weekly":
+        elif SCHEDULE_TYPE == "w":
             getattr(schedule.every(), SCHEDULE_DAY).at(SCHEDULE_TIME).do(update_job)
-        elif SCHEDULE_TYPE == "monthly":
+        elif SCHEDULE_TYPE == "m":
             schedule.every(1).months.at(f"{SCHEDULE_DATE:02d} {SCHEDULE_TIME}").do(update_job)
         else:
             logger.error(f"不支持的调度类型: {SCHEDULE_TYPE}")
@@ -327,7 +324,7 @@ def signal_handler(sig, frame):
     RUNNING = False
 
 if __name__ == "__main__":
-    logger.info("iKuai IP 同步服务启动")
+    logger.info("iKuai IP 更新服务启动")
     # 注册信号处理
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -345,4 +342,4 @@ if __name__ == "__main__":
         RUNNING = False
     
     scheduler_thread.join()
-    logger.info("iKuai IP 同步服务停止")
+    logger.info("iKuai IP 更新服务停止")
