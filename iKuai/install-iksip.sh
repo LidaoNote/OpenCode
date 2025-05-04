@@ -2,12 +2,17 @@
 
 # iKuai IP 更新服务一键安装脚本
 # 适用于基于 systemd 的 Linux 系统（如 Ubuntu、CentOS 等）
+# 支持从网络下载 ikuai-ip-update.py 或使用本地文件
 # 如果缺少 config.json，将交互式生成配置文件
+# 中国 IP 列表 URL 支持默认值
 
 # 目标安装目录
 INSTALL_DIR="/opt/iksip"
 SERVICE_NAME="iksip"
 SYSTEMD_SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+SCRIPT_URL="https://raw.githubusercontent.com/LidaoNote/OpenCode/refs/heads/main/iKuai/ikuai-ip-update.py"
+SCRIPT_NAME="ikuai-ip-update.py"
+DEFAULT_CHINA_IP_URL="https://raw.githubusercontent.com/LidaoNote/OpenCode/refs/heads/main/china_ip.txt"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -56,9 +61,24 @@ if ! command -v pip3 >/dev/null 2>&1; then
     fi
 fi
 
-# 检查当前目录下是否有 ikuai-ip-update.py
-if [ ! -f "ikuai-ip-update.py" ]; then
-    log_error "当前目录下缺少 ikuai-ip-update.py 文件"
+# 检查并获取 ikuai-ip-update.py
+if [ -f "$SCRIPT_NAME" ]; then
+    log_info "找到本地 $SCRIPT_NAME 文件，将使用本地文件"
+else
+    log_info "未找到本地 $SCRIPT_NAME 文件，尝试从 $SCRIPT_URL 下载"
+    if command -v curl >/dev/null 2>&1; then
+        curl -o "$SCRIPT_NAME" "$SCRIPT_URL" || log_error "下载 $SCRIPT_NAME 失败"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -O "$SCRIPT_NAME" "$SCRIPT_URL" || log_error "下载 $SCRIPT_NAME 失败"
+    else
+        log_error "未安装 curl 或 wget，请安装后重试"
+    fi
+    log_info "成功下载 $SCRIPT_NAME"
+fi
+
+# 验证 ikuai-ip-update.py 是否可执行
+if ! head -n 1 "$SCRIPT_NAME" | grep -q "^#!/usr/bin/env python3"; then
+    log_error "$SCRIPT_NAME 文件格式错误，缺少 Python shebang 行"
 fi
 
 # 交互式生成 config.json（如果不存在）
@@ -79,8 +99,8 @@ if [ ! -f "config.json" ]; then
     [ -z "$password" ] && log_error "密码不能为空"
     config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['password']='$password'; print(json.dumps(d))")
 
-    read -p "请输入中国 IP 列表 URL (例如 https://raw.githubusercontent.com/LidaoNote/OpenCode/refs/heads/main/china_ip.txt): " china_ip_url
-    [ -z "$china_ip_url" ] && log_error "中国 IP 列表 URL 不能为空"
+    read -p "请输入中国 IP 列表 URL (按 Enter 使用默认 $DEFAULT_CHINA_IP_URL): " china_ip_url
+    china_ip_url=${china_ip_url:-$DEFAULT_CHINA_IP_URL}
     config_json=$(python3 -c "import json; d=json.loads('$config_json'); d['china_ip_url']='$china_ip_url'; print(json.dumps(d))")
 
     read -p "请输入本地 IP 列表文件名 (例如 last_china_ip.json): " last_ip_file
@@ -162,15 +182,15 @@ log_info "创建安装目录: $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR" || log_error "创建目录 $INSTALL_DIR 失败"
 
 # 复制脚本和配置文件
-log_info "复制 ikuai-ip-update.py 和 config.json 到 $INSTALL_DIR"
-cp "ikuai-ip-update.py" "$INSTALL_DIR/" || log_error "复制 ikuai-ip-update.py 失败"
+log_info "复制 $SCRIPT_NAME 和 config.json 到 $INSTALL_DIR"
+cp "$SCRIPT_NAME" "$INSTALL_DIR/" || log_error "复制 $SCRIPT_NAME 失败"
 cp "config.json" "$INSTALL_DIR/" || log_error "复制 config.json 失败"
 
 # 设置文件权限
 log_info "设置文件权限"
-chmod 755 "$INSTALL_DIR/ikuai-ip-update.py" || log_error "设置 ikuai-ip-update.py 权限失败"
+chmod 755 "$INSTALL_DIR/$SCRIPT_NAME" || log_error "设置 $SCRIPT_NAME 权限失败"
 chmod 600 "$INSTALL_DIR/config.json" || log_error "设置 config.json 权限失败"
-chown nobody:nogroup "$INSTALL_DIR/ikuai-ip-update.py" "$INSTALL_DIR/config.json" || log_error "设置文件所有者失败"
+chown nobody:nogroup "$INSTALL_DIR/$SCRIPT_NAME" "$INSTALL_DIR/config.json" || log_error "设置文件所有者失败"
 
 # 安装 Python 依赖
 log_info "安装 Python 依赖"
@@ -184,7 +204,7 @@ Description=iKuai IP Update Service
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/python3 $INSTALL_DIR/ikuai-ip-update.py
+ExecStart=/usr/bin/python3 $INSTALL_DIR/$SCRIPT_NAME
 WorkingDirectory=$INSTALL_DIR
 Restart=always
 User=nobody
