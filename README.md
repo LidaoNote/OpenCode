@@ -2,7 +2,7 @@
 
 ## 引言
 
-OpenCode 仓库由 LidaoNote 维护，托管于 [GitHub](https://github.com/LidaoNote/OpenCode)，是一个集自动化脚本、实用工具和示例代码于一体的资源库。该仓库旨在帮助用户自动化任务、提升工作效率，并通过示例代码学习特定功能的实现方式。
+OpenCode 仓库由 Lidao 维护，托管于 [GitHub](https://github.com/LidaoNote/OpenCode)，是一个集自动化脚本、实用工具和示例代码于一体的资源库。该仓库旨在帮助用户自动化任务、提升工作效率，并通过示例代码学习特定功能的实现方式。
 
 ## 仓库结构
 
@@ -28,7 +28,7 @@ OpenCode 仓库由 LidaoNote 维护，托管于 [GitHub](https://github.com/Lida
 | bcrypt10.py         | 使用 bcrypt 进行加密的 Python 脚本，能进行 10 次密码哈希。       |
 | block.txt           | 黑名单文件，包含国内屏蔽的 IP 或域名。                           |
 | china_ip.txt        | 中国 IP 地址列表。                                              |
-| dns.sh              | DNS 相关脚本，用于一键 SmartDNS / AdGuardHome 安装和卸载。        |
+| dns.sh              | DNS 相关脚本，用于一键 SmartDNS / AdGuardHome 安装和卸载。       |
 | doh.py              | DNS over HTTPS (DoH) 相关脚本，用于加密 DNS 查询。              |
 | unique_ip.txt       | DNS 污染后的 IP 地址返回列表，来源是维基百科。                   |
 
