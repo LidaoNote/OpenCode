@@ -22,7 +22,7 @@ OpenCode 仓库由 LidaoNote 维护，托管于 [GitHub](https://github.com/Lida
 
 | 文件名称            | 描述                                                                 |
 |---------------------|----------------------------------------------------------------------|
-| ImmortalWrt_opkg.txt| ImmortalWrt 系统的 opkg 包列表，用于嵌入式设备或路由器固件管理。|
+| ImmortalWrt_opkg.txt| ImmortalWrt 系统的 opkg ，包含国外和国内。|
 | README.md           | 仓库的主说明文档，提供基本信息和使用指南。                      |
 | agh_admin.py        | AdGuardHome 管理脚本，用于自动化配置或管理 AdGuardHome 服务。   |
 | bcrypt10.py         | 使用 bcrypt 进行加密的 Python 脚本，用于密码哈希。              |
