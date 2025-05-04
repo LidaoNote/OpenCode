@@ -18,7 +18,7 @@
 - `IKUAI_URL`：iKuai 路由器 Web 界面的 URL（例如：`http://10.0.0.1`）。
 - `USERNAME`：iKuai 路由器的管理员用户名（默认：`admin`）。
 - `PASSWORD`：iKuai 路由器的管理员密码（默认：`admin`）。
-- `CHINA_IP_URL`：中国 IP 列表的 URL（默认：`https://raw.githubusercontent.com/17mon/china_ip_list/master/china_ip_list.txt`）。
+- `CHINA_IP_URL`：中国 IP 列表的 URL（默认：`https://raw.githubusercontent.com/LidaoNote/OpenCode/refs/heads/main/china_ip.txt`）。
 - `LAST_IP_FILE`：本地存储上次获取的 IP 列表的文件（默认：`last_china_ip.json`）。
 
 ## 工作原理
