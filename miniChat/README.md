@@ -8,8 +8,64 @@
   - 强调隐私，无监管、无敏感词过滤。
 - **使用场景**：适合需要快速、安全、临时沟通的场景。
 
+### 安装流程
+
+要将 miniChat 安装为系统服务，请按照以下步骤操作：
+
+1. **准备工作**：
+   - 确保您使用的是基于 Debian/Ubuntu 的 Linux 系统（如 Ubuntu 20.04 或更高版本）。
+   - 确保您有 root 权限以执行安装脚本。
+   - 将以下文件放置在同一目录下：`server.py`、`index.html` 和 `install_minichat_service.sh`。
+
+2. **运行安装脚本**：
+   - 打开终端，进入包含上述文件的目录。
+   - 赋予安装脚本执行权限：
+     ```bash
+     chmod +x install_minichat_service.sh
+     ```
+   - 以 root 权限运行脚本：
+     ```bash
+     sudo ./install_minichat_service.sh
+     ```
+   - 脚本将自动完成以下操作：
+     - 安装必要的依赖（如 Python3、pip、nginx 等）。
+     - 创建专用用户 `minichat` 用于运行服务。
+     - 在 `/opt/miniChat` 目录下创建安装目录并复制文件。
+     - 设置 Python 虚拟环境并安装所需 Python 包（`aiohttp`、`aiohttp-jinja2`、`jinja2`）。
+     - 创建并启用 systemd 服务 `minichat.service`。
+     - 启动 miniChat 服务。
+
+3. **验证安装**：
+   - 检查服务状态：
+     ```bash
+     systemctl status minichat
+     ```
+   - 查看服务日志：
+     ```bash
+     journalctl -u minichat.service
+     ```
+   - 如果服务正常运行，您可以通过浏览器访问 `http://<您的服务器IP>:8080` 来使用聊天室。
+
+4. **配置 Nginx 反向代理**：
+   - 按照下方的 “Nginx 反向代理配置” 部分配置 Nginx，以支持 HTTPS 和 WebSocket。
+   - 配置完成后，重启 Nginx：
+     ```bash
+     systemctl restart nginx
+     ```
+
+5. **故障排查**：
+   - 如果服务未能启动，检查日志以获取错误信息：
+     ```bash
+     journalctl -u minichat.service
+     ```
+   - 确保端口 8080 未被占用。
+   - 验证 Nginx 配置是否正确：
+     ```bash
+     nginx -t
+     ```
+
 ### 依赖安装
-运行 miniChat 需要以下 Python 扩展：
+运行 miniChat 需要以下 Python 扩展（安装脚本会自动处理）：
 ```bash
 pip install aiohttp aiohttp-jinja2 jinja2
 ```
