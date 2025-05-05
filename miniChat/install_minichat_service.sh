@@ -67,7 +67,7 @@ fi
 # 前置安装环境与依赖
 echo "正在安装前置环境与依赖..."
 apt-get update
-apt-get install -y python3 python3-pip python3-venv nginx curl
+apt-get install -y python3 python3-pip python3-venv curl
 
 # 检查 pip 是否可用
 if ! $PYTHON_VERSION -m pip --version >/dev/null 2>&1; then
