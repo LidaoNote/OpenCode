@@ -128,13 +128,15 @@ def fetch_china_ip_list(config):
 
 def load_last_ip_list(config):
     path = os.path.join(os.path.dirname(__file__), config["last_ip_file"])
-    if os.path.exists(path):
-        try:
-            with open(path, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"读取 IP 列表失败: {e}")
-    return []
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        logger.warning(f"IP 列表文件 {path} 不存在或为空")
+        return []
+    try:
+        with open(path, 'r') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, Exception) as e:
+        logger.error(f"读取 IP 列表失败: {e}")
+        return []
 
 def save_last_ip_list(config, ip_list):
     path = os.path.join(os.path.dirname(__file__), config["last_ip_file"])
@@ -170,7 +172,7 @@ def get_isp_info(session, isp_name, config):
 
 def update_custom_isp(session, ip_list, isp_name, config):
     logger.info(f"更新 {isp_name}，{len(ip_list)} 条 IP")
-    isp_id, _ = get_isp_info(session, isp_name, config)
+    isp_id, isp_ip_count = get_isp_info(session, isp_name, config)
     ipgroup_str = ",".join(ip_list)
     payload = {
         "func_name": "custom_isp",
@@ -190,7 +192,6 @@ def update_custom_isp(session, ip_list, isp_name, config):
     if result.get("Result") not in [10000, 30000]:
         logger.error(f"更新失败: {result.get('ErrMsg')} (Result: {result.get('Result')})")
         return False
-    isp_id, isp_ip_count = get_isp_info(session, isp_name, config)
     expected_count = len(ip_list)
     if isp_id and isp_ip_count == expected_count:
         logger.info(f"验证成功: {isp_name} IP 条数 {isp_ip_count} 匹配预期 {expected_count}")
