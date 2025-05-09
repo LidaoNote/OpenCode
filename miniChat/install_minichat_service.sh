@@ -51,8 +51,15 @@ if ! command -v $PYTHON_VERSION >/dev/null 2>&1; then
     exit 1
 fi
 
-PYTHON_VERSION_CHECK=$($PYTHON_VERSION --version 2>&1 | grep -oP '\d+\.\d+')
-if [[ "$(echo "$PYTHON_VERSION_CHECK < $MIN_PYTHON_VERSION" | bc -l)" -eq 1 ]]; then
+# 提取 Python 版本并确保格式干净
+PYTHON_VERSION_CHECK=$($PYTHON_VERSION --version 2>&1 | grep -oP '\d+\.\d+' | head -n 1)
+if [ -z "$PYTHON_VERSION_CHECK" ]; then
+    echo -e "${RED}无法获取 Python 版本，请检查 Python 安装${NC}"
+    exit 1
+fi
+
+# 使用 awk 比较版本号
+if ! echo "$PYTHON_VERSION_CHECK $MIN_PYTHON_VERSION" | awk '{exit ($1 >= $2)}'; then
     echo -e "${RED}Python 版本过低，要求至少 ${MIN_PYTHON_VERSION}，当前版本为 ${PYTHON_VERSION_CHECK}${NC}"
     exit 1
 fi
