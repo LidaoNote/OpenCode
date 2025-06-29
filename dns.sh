@@ -42,7 +42,7 @@ show_menu() {
 install_dependencies() {
     echo "正在安装更新和所需软件..."
     apt update
-    apt install -y wget curl net-tools sed jq dpkg libssl1.1
+    apt install -y wget curl net-tools sed jq dpkg libssl1.1 tr
     if [ $? -ne 0 ]; then
         echo "依赖安装失败，尝试添加旧版库..."
         echo "deb http://deb.debian.org/debian buster main" | tee /etc/apt/sources.list.d/buster.list
@@ -66,9 +66,9 @@ get_latest_smartdns_url() {
     echo "正在获取最新 SmartDNS 版本..."
     LATEST_RELEASE=$(curl -s https://api.github.com/repos/pymumu/smartdns/releases/latest)
     if [ "$INSTALL_METHOD" = "deb" ]; then
-        DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | jq -r ".assets[] | select(.name | contains(\"${SMARTDNS_ARCH}-debian-all.deb\")) | .browser_download_url")
+        DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | tr -d '\000-\037' | jq -r ".assets[] | select(.name | contains(\"${SMARTDNS_ARCH}-debian-all.deb\")) | .browser_download_url")
     else
-        DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | jq -r ".assets[] | select(.name | contains(\"${SMARTDNS_ARCH}-linux-all.tar.gz\")) | .browser_download_url")
+        DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | tr -d '\000-\037' | jq -r ".assets[] | select(.name | contains(\"${SMARTDNS_ARCH}-linux-all.tar.gz\")) | .browser_download_url")
     fi
     if [ -z "$DOWNLOAD_URL" ]; then
         echo "无法获取 SmartDNS 下载链接"
