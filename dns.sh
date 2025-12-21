@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # 确保脚本以 root 用户身份运行
-if [ "$EUID" -ne 0 ]; then
+if [ "$(id -u)" -ne 0 ]; then
     echo "请以 root 用户身份运行此脚本"
     exit 1
 fi
@@ -42,22 +42,28 @@ show_menu() {
 install_dependencies() {
     echo "正在安装更新和所需软件..."
     apt update
-    apt install -y wget curl net-tools sed jq dpkg libssl1.1 tr
+    # 移除 net-tools (netstat)，改用 iproute2 (ss)；移除 tr/sed (通常内置)；移除 libssl1.1 (过时)
+    apt install -y wget curl iproute2 sed jq dpkg
     if [ $? -ne 0 ]; then
-        echo "依赖安装失败，尝试添加旧版库..."
-        echo "deb http://deb.debian.org/debian buster main" | tee /etc/apt/sources.list.d/buster.list
-        apt update
-        apt install -y libssl1.1
+        echo "依赖安装遇到问题，尝试修复并继续..."
+        apt install -f -y
     fi
 }
 
 # 检查端口冲突
 check_port_conflict() {
-    if netstat -tulnp | grep -q ":53"; then
-        echo "端口 53 已被占用，禁用 systemd-resolved..."
-        systemctl disable --now systemd-resolved
-        rm -f /etc/resolv.conf
-        echo "nameserver 8.8.8.8" > /etc/resolv.conf
+    # 使用 ss 代替 netstat，更现代更快速
+    if ss -tuln | grep -q ":53 "; then
+        echo "端口 53 已被占用，尝试检测并处理冲突..."
+        if systemctl is-active --quiet systemd-resolved; then
+            echo "禁用 systemd-resolved..."
+            systemctl disable --now systemd-resolved
+            rm -f /etc/resolv.conf
+            echo "nameserver 8.8.8.8" > /etc/resolv.conf
+            echo "nameserver 114.114.114.114" >> /etc/resolv.conf
+        else
+            echo "警告: 端口 53 被非 systemd-resolved 进程占用，请手动检查。"
+        fi
     fi
 }
 
