@@ -1,8 +1,8 @@
 #!/bin/sh
 
 # 确保脚本以 root 用户身份运行
-if [ "$(id -u)" -ne 0 ]; then
-    echo "请以 root 用户身份运行此脚本"
+if [ "$(id -u)" -ne 0 ] && [ "$EUID" -ne 0 ]; then
+    echo "错误: 请以 root 用户身份运行此脚本。"
     exit 1
 fi
 
@@ -38,16 +38,63 @@ show_menu() {
     read -p "输入选项 (1/2/3/4/5): " choice
 }
 
+# 带有重试机制的 apt 更新
+apt_update_with_retry() {
+    local max_retries=3
+    local count=0
+    until [ "$count" -ge "$max_retries" ]; do
+        echo "正在更新软件包列表 (第 $((count+1)) 次尝试)..."
+        apt-get update && return 0
+        count=$((count+1))
+        echo "更新失败，正在重试..."
+        sleep 2
+    done
+    return 1
+}
+
 # 安装所需软件
 install_dependencies() {
     echo "正在安装更新和所需软件..."
-    apt update
-    # 移除 net-tools (netstat)，改用 iproute2 (ss)；移除 tr/sed (通常内置)；移除 libssl1.1 (过时)
-    apt install -y wget curl iproute2 sed jq dpkg
-    if [ $? -ne 0 ]; then
-        echo "依赖安装遇到问题，尝试修复并继续..."
-        apt install -f -y
+    
+    # 设置非交互模式，避免安装过程中停下来问问题
+    export DEBIAN_FRONTEND=noninteractive
+
+    # 检查是否是 Debian/Ubuntu 系列
+    if ! command -v apt-get >/dev/null 2>&1; then
+        echo "错误: 此脚本仅支持基于 Debian/Ubuntu 的系统。"
+        exit 1
     fi
+
+    apt_update_with_retry
+    if [ $? -ne 0 ]; then
+        echo "警告: 'apt-get update' 失败，将尝试直接安装依赖..."
+    fi
+
+    # 安装核心依赖：增加 ca-certificates 和 gnupg 保证安全性
+    apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+        wget curl iproute2 sed jq dpkg ca-certificates gnupg
+    
+    if [ $? -ne 0 ]; then
+        echo "依赖初步安装失败，尝试修复依赖并重试..."
+        apt-get install -f -y
+        apt-get install -y wget curl iproute2 sed jq dpkg ca-certificates gnupg
+    fi
+
+    # 验证关键工具是否安装成功
+    for tool in wget curl jq ss; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            echo "错误: 核心依赖工具 '$tool' 安装失败，请检查网络或软件源。"
+            exit 1
+        fi
+    done
+
+    # 检查 Systemd 是否存在
+    if ! pidof systemd >/dev/null 2>&1 && [ ! -d /run/systemd/system ]; then
+        echo "错误: 检测到系统未使用 systemd，本脚本依赖 systemd 管理服务。"
+        exit 1
+    fi
+    
+    echo "依赖安装及环境检查完成。"
 }
 
 # 检查端口冲突
