@@ -189,6 +189,37 @@ class TetrisGame(pyglet.window.Window):
         self.padding = int(PADDING * self.pixel_ratio)
         self.sidebar_width = int(SIDEBAR_WIDTH * self.pixel_ratio)
         
+        # 游戏状态初始值（UI 布局依赖这些值）
+        self.selected_level = 1
+        self.hold_enabled = False      # 暂存默认关闭
+        self.ui_time = 0.0
+        self.reset_hold_timer = 0.0
+        self.is_paused = False
+        self.is_game_over = True
+        
+        # === 演示模式相关 ===
+        self.idle_timer = 0.0          # 静置计时器
+        self.idle_threshold = 15.0     # 15秒无操作进入演示模式
+        self.demo_mode = False         # 演示模式标志
+        self.demo_target_score = 0  # 0 表示没有分数限制，开启无尽刷分模式
+        self.demo_ai_delay = 0.0       # AI决策延迟计时器
+        self.demo_ai_action = None     # AI当前决策动作
+        self.demo_ai_step = 0          # AI执行步骤计数
+        self.demo_ai_target_info = None # (x, y, matrix)
+        self.ai_conservative_mode = False # AI 策略状态：False 为大师模式，True 为保守模式
+        
+        # AI启发式权重（V14.0 - 狂暴进攻、地基解封策略）
+        self.ai_weights = {
+            'aggregate_height': -2.5,       # 狂暴模式：极速压水位
+            'complete_lines': 5.0,
+            'row_completeness': 150.0,   
+            'holes': -50000.0,           
+            'effective_well_value': 1500.0, 
+            'no_right_pillar': -5000.0,     # 地基不足 6 层时严守，达标后直接重赏
+            'base_flatness': -600.0,        
+            'landing_depth': 25.0        
+        } 
+
         # 初始化子系统
         self.input_handler = InputHandler()
         self.joysticks = self._initialize_joysticks()
@@ -196,10 +227,6 @@ class TetrisGame(pyglet.window.Window):
         self._initialize_audio()
         self._initialize_graphics()
         
-        # 游戏状态
-        self.selected_level = 1
-        self.ui_time = 0.0  # 用于 UI 动画
-        self.reset_hold_timer = 0.0 # 软重置计时器 (Select + Start)
         self.reset_game(self.selected_level)
         self.is_game_over = True  # 启动时显示准备界面
         
@@ -555,144 +582,569 @@ class TetrisGame(pyglet.window.Window):
         """创建侧边栏 UI"""
         G, P, R = grid_size, padding, ratio
         
-        # 侧边栏参数
+        # 侧边栏基础物理参数
         sidebar_x = P + game_area_width + int(24 * R)
         box_width = int(180 * R)
-        box_height_preview = int(145 * R)  # 从 135 增加到 145
+        box_height_preview = int(145 * R)
         box_height_stat = int(82 * R)
-        separator = int(16 * R)            # 间距从 12 增加到 16
-        
-        # 计算各盒子的 Y 偏移
-        offset_hold = P
-        offset_next = offset_hold + box_height_preview + separator
-        offset_score = offset_next + box_height_preview + separator
-        offset_level = offset_score + box_height_stat + separator
-        
-        # 背景盒子
-        corner_radius = int(10 * R)
-        self.sidebar_boxes = [
-            shapes.RoundedRectangle(
-                sidebar_x, self.flip_y(offset_hold + box_height_preview),
-                box_width, box_height_preview, radius=corner_radius,
-                color=(*CARD_BG, 180), batch=self.batch_ui, group=self.ui_group_background
-            ),
-            shapes.RoundedRectangle(
-                sidebar_x, self.flip_y(offset_next + box_height_preview),
-                box_width, box_height_preview, radius=corner_radius,
-                color=(*CARD_BG, 180), batch=self.batch_ui, group=self.ui_group_background
-            ),
-            shapes.RoundedRectangle(
-                sidebar_x, self.flip_y(offset_score + box_height_stat),
-                box_width, box_height_stat, radius=corner_radius,
-                color=(*CARD_BG, 180), batch=self.batch_ui, group=self.ui_group_background
-            ),
-            shapes.RoundedRectangle(
-                sidebar_x, self.flip_y(offset_level + box_height_stat),
-                box_width, box_height_stat, radius=corner_radius,
-                color=(*CARD_BG, 180), batch=self.batch_ui, group=self.ui_group_background
-            )
-        ]
-        
-        # 文字标签
+        separator = int(16 * R)
         label_padding_x = int(18 * R)
         label_padding_y = int(22 * R)
+
+        # 保存为实例属性供动态布局重算
+        self.sidebar_x = sidebar_x
+        self.box_width = box_width
+        self.box_height_preview = box_height_preview
+        self.box_height_stat = box_height_stat
+        self.separator = separator
+        self.label_padding_x = label_padding_x
+        self.label_padding_y = label_padding_y
+        self.R = R
+        self.P = P
         
-        self.labels = {
-            'hold': text.Label(
-                "暂存", font_name=self.font_name, font_size=self.font_size_small,
-                color=(*TEXT_GREY, 255), x=sidebar_x + label_padding_x,
-                y=self.flip_y(offset_hold + label_padding_y),
-                batch=self.batch_ui, group=self.ui_group_foreground
-            ),
-            'next': text.Label(
-                "下一个", font_name=self.font_name, font_size=self.font_size_small,
-                color=(*TEXT_GREY, 255), x=sidebar_x + label_padding_x,
-                y=self.flip_y(offset_next + label_padding_y),
-                batch=self.batch_ui, group=self.ui_group_foreground
-            ),
-            'score_title': text.Label(
-                "得分", font_name=self.font_name, font_size=self.font_size_small,
-                color=(*TEXT_GREY, 255), x=sidebar_x + label_padding_x,
-                y=self.flip_y(offset_score + label_padding_y),
-                batch=self.batch_ui, group=self.ui_group_foreground
-            ),
-            'score_value': text.Label(
-                "0", font_name=self.font_name, font_size=self.font_size_main,
-                weight='bold', color=(*PRIMARY_COLOR, 255),
-                x=sidebar_x + label_padding_x,
-                y=self.flip_y(offset_score + label_padding_y + int(26 * R)),
-                anchor_y='top', batch=self.batch_ui, group=self.ui_group_foreground
-            ),
-            'level_title': text.Label(
-                "等级", font_name=self.font_name, font_size=self.font_size_small,
-                color=(*TEXT_GREY, 255), x=sidebar_x + label_padding_x,
-                y=self.flip_y(offset_level + label_padding_y),
-                batch=self.batch_ui, group=self.ui_group_foreground
-            ),
-            'level_value': text.Label(
-                "1", font_name=self.font_name, font_size=self.font_size_main,
-                weight='bold', color=(*PRIMARY_COLOR, 255),
-                x=sidebar_x + label_padding_x,
-                y=self.flip_y(offset_level + label_padding_y + int(26 * R)),
-                anchor_y='top', batch=self.batch_ui, group=self.ui_group_foreground
-            )
-        }
-        
-        # 预览方块池
+        # 1. 创建预览方块池
         self.hold_piece_rects = [
             shapes.Rectangle(0, 0, G - 1, G - 1, batch=self.batch_ui, group=self.ui_group_foreground)
             for _ in range(16)
         ]
-        
         self.next_piece_rects = [
             shapes.Rectangle(0, 0, G - 1, G - 1, batch=self.batch_ui, group=self.ui_group_foreground)
             for _ in range(16)
         ]
-        
         for rect in self.hold_piece_rects + self.next_piece_rects:
             rect.visible = False
+
+        # 2. 创建背景盒子 (初始位置在 0, 会被布局方法修正)
+        corner_radius = int(10 * R)
+        self.sidebar_boxes = [
+            shapes.RoundedRectangle(sidebar_x, 0, box_width, box_height_preview, radius=corner_radius,
+                color=(*CARD_BG, 180), batch=self.batch_ui, group=self.ui_group_background),
+            shapes.RoundedRectangle(sidebar_x, 0, box_width, box_height_preview, radius=corner_radius,
+                color=(*CARD_BG, 180), batch=self.batch_ui, group=self.ui_group_background),
+            shapes.RoundedRectangle(sidebar_x, 0, box_width, box_height_stat, radius=corner_radius,
+                color=(*CARD_BG, 180), batch=self.batch_ui, group=self.ui_group_background),
+            shapes.RoundedRectangle(sidebar_x, 0, box_width, box_height_stat, radius=corner_radius,
+                color=(*CARD_BG, 180), batch=self.batch_ui, group=self.ui_group_background),
+            shapes.RoundedRectangle(sidebar_x, 0, box_width, int(box_height_stat * 1.5), radius=corner_radius,
+                color=(*CARD_BG, 180), batch=self.batch_ui, group=self.ui_group_background)
+        ]
         
-        # 操作提示
-        self.hint_labels = []
-        hint_y_start = offset_level + box_height_stat + int(28 * R)
-        line_height = int(19 * R)
+        # 3. 创建文字标签
+        self.labels = {
+            'next': text.Label("下一个", font_name=self.font_name, font_size=self.font_size_small,
+                color=(*TEXT_GREY, 255), x=sidebar_x + label_padding_x, y=0,
+                batch=self.batch_ui, group=self.ui_group_foreground),
+            'hold': text.Label("暂存", font_name=self.font_name, font_size=self.font_size_small,
+                color=(*TEXT_GREY, 255), x=sidebar_x + label_padding_x, y=0,
+                batch=self.batch_ui, group=self.ui_group_foreground),
+            'score_title': text.Label("得分", font_name=self.font_name, font_size=self.font_size_small,
+                color=(*TEXT_GREY, 255), x=sidebar_x + label_padding_x, y=0,
+                batch=self.batch_ui, group=self.ui_group_foreground),
+            'score_value': text.Label("0", font_name=self.font_name, font_size=self.font_size_main,
+                weight='bold', color=(*PRIMARY_COLOR, 255), x=sidebar_x + label_padding_x, y=0,
+                anchor_y='top', batch=self.batch_ui, group=self.ui_group_foreground),
+            'level_title': text.Label("等级", font_name=self.font_name, font_size=self.font_size_small,
+                color=(*TEXT_GREY, 255), x=sidebar_x + label_padding_x, y=0,
+                batch=self.batch_ui, group=self.ui_group_foreground),
+            'level_value': text.Label("1", font_name=self.font_name, font_size=self.font_size_main,
+                weight='bold', color=(*PRIMARY_COLOR, 255), x=sidebar_x + label_padding_x, y=0,
+                anchor_y='top', batch=self.batch_ui, group=self.ui_group_foreground),
+            
+            # 技术统计
+            'stat_title': text.Label("技术统计", font_name=self.font_name, font_size=self.font_size_small,
+                color=(*TEXT_GREY, 255), x=sidebar_x + label_padding_x, y=0,
+                batch=self.batch_ui, group=self.ui_group_foreground),
+            'stat_1': text.Label("单行: 0", font_name=self.font_name, font_size=int(10 * R),
+                color=(255, 255, 255, 200), x=sidebar_x + label_padding_x, y=0,
+                batch=self.batch_ui, group=self.ui_group_foreground),
+            'stat_2': text.Label("双行: 0", font_name=self.font_name, font_size=int(10 * R),
+                color=(255, 255, 255, 200), x=sidebar_x + label_padding_x, y=0,
+                batch=self.batch_ui, group=self.ui_group_foreground),
+            'stat_3': text.Label("三行: 0", font_name=self.font_name, font_size=int(10 * R),
+                color=(255, 255, 255, 200), x=sidebar_x + label_padding_x, y=0,
+                batch=self.batch_ui, group=self.ui_group_foreground),
+            'stat_4': text.Label("四行: 0", font_name=self.font_name, font_size=int(10 * R),
+                weight='bold', color=(251, 146, 60, 255), x=sidebar_x + label_padding_x, y=0,
+                batch=self.batch_ui, group=self.ui_group_foreground),
+        }
         
-        hints = [
+        # 生成提示信息（初次调用布局方法会处理位置）
+        self.hints = [
             ("方向键", "移动 & 旋转"),
             ("空格", "硬降落"),
             ("C/Shift", "暂存"),
             ("P / R", "暂停 / 重置")
         ]
+        self.hint_labels = []
+        for i, (key_text, action_text) in enumerate(self.hints):
+            kl = text.Label("", font_name=self.font_name, font_size=self.font_size_hint,
+                           weight='bold', color=(255, 255, 255, 255),
+                           batch=self.batch_ui, group=self.ui_group_foreground)
+            al = text.Label("", font_name=self.font_name, font_size=self.font_size_hint,
+                           color=(*TEXT_GREY, 255),
+                           batch=self.batch_ui, group=self.ui_group_foreground)
+            self.hint_labels.extend([kl, al])
+
+        self._update_sidebar_layout() # 应用最终坐标
         
-        for i, (key_text, action_text) in enumerate(hints):
-            key_label = text.Label(
-                key_text, font_name=self.font_name, font_size=self.font_size_hint,
-                weight='bold', color=(255, 255, 255, 255),
-                x=sidebar_x + int(5 * R),
-                y=self.flip_y(hint_y_start + i * line_height),
-                batch=self.batch_ui, group=self.ui_group_foreground
-            )
-            
-            action_label = text.Label(
-                action_text, font_name=self.font_name, font_size=self.font_size_hint,
-                color=(*TEXT_GREY, 255), x=sidebar_x + int(54 * R),
-                y=self.flip_y(hint_y_start + i * line_height),
-                batch=self.batch_ui, group=self.ui_group_foreground
-            )
-            
-            self.hint_labels.extend([key_label, action_label])
+    def _update_sidebar_layout(self):
+        """核心：动态重算侧边栏布局坐标"""
+        P, R = self.P, self.R
+        sep = self.separator
+        hb, hs = self.box_height_preview, self.box_height_stat
         
-        # 保存侧边栏参数供后续使用
-        self.sidebar_x = sidebar_x
-        self.box_width = box_width
-        self.box_height_preview = box_height_preview
-        self.offset_hold = offset_hold
-        self.offset_next = offset_next
-        self.label_padding_y = label_padding_y
+        # 核心：根据 Hold 是否启用来分支计算
+        self.offset_next = P
+        if self.hold_enabled:
+            self.offset_hold = self.offset_next + hb + sep
+            self.offset_score = self.offset_hold + hb + sep
+        else:
+            self.offset_hold = -1000 # 移到屏幕外
+            self.offset_score = self.offset_next + hb + sep
+        
+        self.offset_level = self.offset_score + hs + sep
+        self.offset_stats = self.offset_level + hs + sep
+        
+        # 1. 更新盒子位置 (sidebar_boxes: [Next, Hold, Score, Level, Stats])
+        if hasattr(self, 'sidebar_boxes'):
+            self.sidebar_boxes[0].y = self.flip_y(self.offset_next + hb)
+            self.sidebar_boxes[1].y = self.flip_y(self.offset_hold + hb)
+            self.sidebar_boxes[1].visible = self.hold_enabled
+            self.sidebar_boxes[2].y = self.flip_y(self.offset_score + hs)
+            self.sidebar_boxes[3].y = self.flip_y(self.offset_level + hs)
+            self.sidebar_boxes[4].y = self.flip_y(self.offset_stats + int(hs * 1.5))
+
+        # 2. 更新文字标签位置
+        if hasattr(self, 'labels'):
+            lx, ly = self.label_padding_x, self.label_padding_y
+            self.labels['next'].y = self.flip_y(self.offset_next + ly)
+            self.labels['hold'].y = self.flip_y(self.offset_hold + ly)
+            self.labels['hold'].visible = self.hold_enabled
+            
+            self.labels['score_title'].y = self.flip_y(self.offset_score + ly)
+            self.labels['score_value'].y = self.flip_y(self.offset_score + ly + int(26 * R))
+            self.labels['level_title'].y = self.flip_y(self.offset_level + ly)
+            self.labels['level_value'].y = self.flip_y(self.offset_level + ly + int(26 * R))
+            
+            # 技术统计布局
+            sy = self.offset_stats + ly
+            lh = int(18 * R)
+            self.labels['stat_title'].y = self.flip_y(sy)
+            self.labels['stat_1'].y = self.flip_y(sy + lh + int(4 * R))
+            self.labels['stat_2'].y = self.flip_y(sy + lh * 2 + int(4 * R))
+            self.labels['stat_3'].y = self.flip_y(sy + lh * 3 + int(4 * R))
+            self.labels['stat_4'].y = self.flip_y(sy + lh * 4 + int(4 * R))
+            
+        # 3. 更新操作提示 (弹性位移)
+        if hasattr(self, 'hint_labels') and self.hint_labels:
+            hint_y = self.offset_stats + int(hs * 1.5) + int(28 * R)
+            line_h = int(19 * R)
+            for i in range(len(self.hints)):
+                # Key label
+                self.hint_labels[i*2].x = self.sidebar_x + int(5 * R)
+                self.hint_labels[i*2].y = self.flip_y(hint_y + i * line_h)
+                self.hint_labels[i*2].text = self.hints[i][0]
+                # Action label
+                self.hint_labels[i*2+1].x = self.sidebar_x + int(54 * R)
+                self.hint_labels[i*2+1].y = self.flip_y(hint_y + i * line_h)
+                self.hint_labels[i*2+1].text = self.hints[i][1]
     
     def flip_y(self, game_y):
         """将游戏坐标转换为屏幕坐标（Y 轴翻转）"""
         return self.physical_height - game_y
+    
+    # ===== AI 演示模式核心算法 =====
+    
+    def ai_evaluate_board(self, test_arena, lines_cleared, is_high_risk, landing_y=None):
+        """
+        至尊大师级评估算法 (V6.5) - 13+1 策略 & 低区优先原则
+        """
+        cols = len(test_arena[0])
+        rows = len(test_arena)
+        
+        col_heights = []
+        for x in range(cols):
+            h = 0
+            for y in range(rows):
+                if test_arena[y][x]:
+                    h = rows - y
+                    break
+            col_heights.append(h)
+        
+        # --- 全局核心指标 (V13.1 稳定版) ---
+        max_h = max(col_heights)
+        main_well_col = cols - 1
+        row_transitions = 0
+        for y in range(rows):
+            for x in range(cols - 1):
+                if (test_arena[y][x] > 0) != (test_arena[y][x+1] > 0):
+                    row_transitions += 1
+            if test_arena[y][0] == 0: row_transitions += 1
+            if test_arena[y][cols-1] == 0: row_transitions += 1
+
+        col_transitions = 0
+        for x in range(cols):
+            for y in range(rows - 1):
+                if (test_arena[y][x] > 0) != (test_arena[y+1][x] > 0):
+                    col_transitions += 1
+            if test_arena[rows-1][x] == 0: col_transitions += 1
+
+        # 2. 空洞与遮盖 (杜绝遮盖空隙，违者重罚)
+        holes = 0
+        blocks_above_holes = 0
+        for x in range(cols):
+            block_count_in_col = 0
+            for y in range(rows):
+                if test_arena[y][x] > 0:
+                    block_count_in_col += 1
+                elif block_count_in_col > 0:
+                    holes += 1
+                    # 每一层遮盖都是致命的
+                    blocks_above_holes += block_count_in_col
+        
+        # 3. 经典 9+1 策略
+        wells = []
+        for x in range(cols):
+            # 井的定义：左右都比自己高
+            l = col_heights[x-1] if x > 0 else rows 
+            r = col_heights[x+1] if x < cols - 1 else rows
+            d = min(l, r) - col_heights[x]
+            if d > 0:
+                wells.append((d, x))
+        
+        well_penalty = 0
+        right_well_reward = 0
+        
+        # 3.1 提取左侧区域高度（13列）
+        left_heights = [col_heights[i] for i in range(main_well_col)]
+        left_max = max(left_heights) if left_heights else 0
+        left_min = min(left_heights) if left_heights else 0
+
+        # 3.0 预计算左侧完整行数，作为战术解锁和蓄力的依据
+        left_full_rows = 0
+        for y in range(rows):
+            is_row_complete = True
+            for x in range(main_well_col):
+                if test_arena[y][x] == 0:
+                    is_row_complete = False
+                    break
+            if is_row_complete:
+                left_full_rows += 1
+
+        if is_high_risk:
+            # 危机模式：全力求生，惩罚所有井，包括右侧
+            well_penalty = sum(w[0] for w in wells) * 1000.0
+        else:
+            # 正常模式：实施 13+1 策略 (左侧平整地基 + 右侧有效深井)
+            
+            # 这里的 wells 是通用的井列表。我们需要专门处理最右侧
+            h13 = col_heights[main_well_col - 1]
+            h14 = col_heights[main_well_col]
+            
+            # 狂暴进攻判定：左侧最高点超过 6 层即视为解禁
+            emergency_mode = (left_max > 6)
+            
+            if h13 > h14:
+                # 合法井：右侧第 14 列低于第 13 列
+                depth = h13 - h14
+                effective_d = min(depth, left_max + 1)
+                right_well_reward += (effective_d ** 2) * 20000.0 + 100000.0
+            elif h14 > h13:
+                # 狂暴逻辑：在 6 层以上开启“无脑下竖条”模式
+                if left_full_rows < 6 and not emergency_mode:
+                    # 只有在极低位且没打好地基时，才严禁破坏井位
+                    well_penalty += (h14 - h13) * 400000.0
+                else:
+                    # 狂暴重赏：500万分起步！让 AI 迷恋右侧冒尖带来的泄洪感
+                    right_well_reward += (h14 - h13) * 200000.0 + 5000000.0
+
+            # 处理其他位置的杂井 (左侧 13 列必须铁板一块)
+            for d, x in wells:
+                if x != main_well_col:
+                    well_penalty += (d ** 2) * 100000.0
+
+            # 3.1b 检查井口是否被堵 (非紧急模式下更严厉)
+            if left_heights:
+                min_left_h = min(left_heights)
+                if col_heights[main_well_col] > min_left_h + 2:
+                     penalty_factor = 10000.0 if not emergency_mode else 1000.0
+                     well_penalty += (col_heights[main_well_col] - min_left_h) * penalty_factor
+
+        # 3.2 行完整度 (保整行) - 核心算法：通过统计行内列填充数给予平方级奖励
+        row_integrity_bonus = 0
+        for y in range(rows):
+            row_blocks = 0
+            for x in range(main_well_col):
+                if test_arena[y][x] > 0:
+                    row_blocks += 1
+            if row_blocks > 0:
+                # 海量奖励：13个块的行奖励将达到 169 * 1000 = 16.9 万分
+                # 迫使 AI 疯狂想要“平推”左侧，消灭这种由于局部冒尖带来的地基不稳。
+                row_integrity_bonus += (row_blocks ** 2) * 1000.0
+
+        # 3.3 地基平整度与修复惩罚 (确保 13 列整体平推)
+        low_point_penalty = 0
+        if left_heights:
+            max_h_left = max(left_heights)
+            min_h_left = min(left_heights)
+            
+            # 门槛从 3 降到 1：只要有落差，就视为严重失误
+            if max_h_left - min_h_left > 1:
+                low_point_penalty += (max_h_left - min_h_left) * 50000.0
+
+            for x, h in enumerate(left_heights):
+                if h < max_h_left:
+                    gap_depth = max_h_left - h
+                    # 极速填坑动力
+                    low_point_penalty += (gap_depth ** 2) * 30000.0
+
+        # 3.4 蓄力策略 (Stack Building)
+        stack_building_penalty = 0
+        if 0 < lines_cleared < 4 and left_full_rows < 3:
+            # 只有在非危险状态且处于 6 层以下安全水位时才限制消行。
+            if not is_high_risk and not (max_h > 6):
+                # 高达 80 万分的罚款，足以封杀一切非 4 行的消行意图，强迫补齐左侧。
+                stack_building_penalty = 800000.0
+
+        # 3.5 凹凸度 (Bumpiness) - 维持局部微观平滑
+        left_bumpiness = 0
+        for x in range(main_well_col - 1):
+            diff = abs(col_heights[x] - col_heights[x+1])
+            left_bumpiness += diff * diff 
+
+        # 4. 消行奖励 - 诱导 4 行
+        if is_high_risk:
+            line_bonus = {0:0, 1:20000, 2:50000, 3:120000, 4:400000}[lines_cleared]
+        else:
+            # 大师模式：极度渴望 4 行
+            # 如果消的是 1-3 行，且目前右侧井还没攒够，给予轻微负分以示警告
+            line_bonus = {0:0, 1:-5000, 2:5000, 3:20000, 4:1000000}[lines_cleared]
+
+        # 5. 综合评分
+        agg_h = sum(col_heights)
+        max_h = max(col_heights)
+        h_penalty = 60.0 if is_high_risk else 1.0
+        
+        # 6. 深度优先重力 (Landing Depth)
+        # landing_y 越大表示落点越靠下。
+        landing_penalty = 0
+        if landing_y is not None:
+            # 维持适度引导，将机会留给完美的 shapes
+            landing_penalty = (rows - landing_y) * 200.0
+
+        score = (
+            line_bonus 
+            + right_well_reward
+            + row_integrity_bonus
+            - (agg_h * 60.0 * h_penalty)   
+            - (row_transitions * 3000.0)    # 提升咬合度要求，减少细碎缝隙
+            - (col_transitions * 3000.0) 
+            - (left_bumpiness * 300.0)      
+            - (low_point_penalty)           
+            - (stack_building_penalty)      
+            - (holes * 5000000.0 * h_penalty) # 终极禁令：500万分惩罚，空洞即破产
+            - (blocks_above_holes * 500000.0) # 严重惩罚遮盖，根除颗粒空洞
+            - well_penalty
+            - (max_h * 800.0 * h_penalty)
+            - landing_penalty
+        )
+        return score
+
+    def ai_find_best_move(self):
+        """AI寻找最佳落点 (极致二级搜索 V6.0)"""
+        actual_h = 0
+        for y in range(GAME_ROWS):
+            if any(self.arena[y]):
+                actual_h = GAME_ROWS - y
+                break
+        
+        # 稍微调高恢复大师模式的门槛，确保彻底清理干净
+        if actual_h > (GAME_ROWS * 0.5):
+            self.ai_conservative_mode = True
+        elif actual_h < 6:
+            self.ai_conservative_mode = False
+            
+        current_mode = self.ai_conservative_mode
+        
+        # --- 第一层搜索：评估所有可用方块 (当前 vs 暂存) ---
+        candidates = []
+        # 选项 A: 使用当前方块
+        candidates.append({'mat': self.current_piece_matrix, 'hold': False})
+        
+        # 选项 B: 考虑使用暂存区
+        if self.hold_enabled and self.can_hold:
+            if self.hold_piece_type is not None:
+                hold_mat = [row[:] for row in SHAPES[self.hold_piece_type]]
+                candidates.append({'mat': hold_mat, 'hold': True})
+            else:
+                # 暂存区为空，暂存当前会使用下一个方块
+                next_mat = [row[:] for row in SHAPES[self.next_piece_type]]
+                candidates.append({'mat': next_mat, 'hold': True})
+
+        scored_moves1 = []
+        for cand in candidates:
+            m_base = cand['mat']
+            for rot1 in range(4):
+                m1 = m_base
+                for _ in range(rot1):
+                    m1 = [list(row) for row in zip(*m1[::-1])]
+                
+                for x1 in range(-2, GAME_COLS + 2):
+                    if not self._check_collision_static(self.arena, {'x': x1, 'y': 0}, m1):
+                        y1 = 0
+                        while not self._check_collision_static(self.arena, {'x': x1, 'y': y1+1}, m1):
+                            y1 += 1
+                        
+                        arena1, clear1 = self._simulate_placement(self.arena, x1, y1, m1)
+                        s1 = self.ai_evaluate_board(arena1, clear1, current_mode, landing_y=y1)
+                        scored_moves1.append((s1, rot1, x1, y1, m1, arena1, cand['hold']))
+        
+        scored_moves1.sort(key=lambda x: x[0], reverse=True)
+        
+        # --- 第二层搜索 (增强采样) ---
+        best_overall_score = float('-inf')
+        final_rot, final_x, final_y, final_mat = 0, 0, 0, None
+        final_hold = False
+        
+        search_limit = 32
+        for s1, rot1, x1, y1, mat1, arena1, is_hold in scored_moves1[:search_limit]:
+            best_s2 = float('-inf')
+            
+            # 第二层总是使用剩下的“下一个”块
+            # 如果第一层选了 hold 且 hold 原本就有块，那么第二层用 current
+            # 如果第一层选了 hold 且 hold 原本没块，那么第二层用 next_next (简化处理：仍用 next)
+            # 如果第一层没选 hold，那么第二层用 next
+            m2_base = self.next_piece_matrix
+            if is_hold and self.hold_piece_type is not None:
+                # 这种情况其实有点复杂，为了性能，我们简化：第二层统一看 next_piece
+                pass
+
+            for rot2 in range(4):
+                m2 = m2_base
+                for _ in range(rot2):
+                    m2 = [list(row) for row in zip(*m2[::-1])]
+                
+                for x2 in range(-2, GAME_COLS + 2):
+                    if not self._check_collision_static(arena1, {'x': x2, 'y': 0}, m2):
+                        y2 = 0
+                        while not self._check_collision_static(arena1, {'x': x2, 'y': y2+1}, m2):
+                            y2 += 1
+                        arena2, clear2 = self._simulate_placement(arena1, x2, y2, m2)
+                        s2 = self.ai_evaluate_board(arena2, clear2, current_mode, landing_y=y2)
+                        if s2 > best_s2:
+                            best_s2 = s2
+            
+            total_s = s1 + best_s2
+            if total_s > best_overall_score:
+                best_overall_score = total_s
+                final_rot, final_x, final_y, final_mat = rot1, x1, y1, mat1
+                final_hold = is_hold
+        
+        if not final_mat and scored_moves1:
+            # 安全降级：如果没有找到两层搜索的最佳解，取第一层搜索的最佳解
+            s1, final_rot, final_x, final_y, final_mat, _, final_hold = scored_moves1[0]
+            best_overall_score = s1
+
+        return final_rot, final_x, best_overall_score, final_y, final_mat, final_hold
+
+    def _simulate_placement(self, arena, piece_x, piece_y, matrix):
+        """模拟放置并返回 (新棋盘, 消行数)"""
+        new_arena = [row[:] for row in arena]
+        for y, row in enumerate(matrix):
+            for x, val in enumerate(row):
+                if val:
+                    ay, ax = piece_y + y, piece_x + x
+                    if 0 <= ay < GAME_ROWS and 0 <= ax < GAME_COLS:
+                        new_arena[ay][ax] = val
+        
+        # 计算并清除满行
+        original_rows = len(new_arena)
+        new_arena = [row for row in new_arena if not all(row)]
+        cleared = original_rows - len(new_arena)
+        
+        while len(new_arena) < GAME_ROWS:
+            new_arena.insert(0, [0] * GAME_COLS)
+        return new_arena, cleared
+
+    def _check_collision_static(self, arena, pos, matrix):
+        for y, row in enumerate(matrix):
+            for x, value in enumerate(row):
+                if value:
+                    ay, ax = y + pos['y'], x + pos['x']
+                    if (ay >= GAME_ROWS or ax < 0 or ax >= GAME_COLS or
+                        (ay >= 0 and arena[ay][ax])):
+                        return True
+        return False
+    
+    def ai_execute_move(self, target_rotation, target_x, should_hold=False):
+        """AI执行移动到目标位置的动作序列"""
+        if self.demo_ai_action is None:
+            # 初始化动作序列
+            actions = []
+            
+            # 0. 如果策略决定使用暂存方块，先执行 hold
+            if should_hold:
+                actions.append('hold')
+            
+            # 1. 旋转到目标角度
+            current_rotation = 0  # 简化：假设从0开始
+            rotations_needed = target_rotation
+            for _ in range(rotations_needed):
+                actions.append('rotate')
+            
+            # 2. 水平移动
+            current_x = self.piece_position['x']
+            dx = target_x - current_x
+            
+            if dx > 0:
+                for _ in range(abs(dx)):
+                    actions.append('right')
+            elif dx < 0:
+                for _ in range(abs(dx)):
+                    actions.append('left')
+            
+            # 3. 硬降落
+            actions.append('drop')
+            
+            self.demo_ai_action = actions
+            self.demo_ai_step = 0
+        
+        # 执行一个动作
+        if self.demo_ai_step < len(self.demo_ai_action):
+            action = self.demo_ai_action[self.demo_ai_step]
+            
+            if action == 'hold':
+                self.hold_piece()
+            elif action == 'rotate':
+                self.rotate_piece(1)
+            elif action == 'left':
+                self.move_piece_horizontal(-1)
+            elif action == 'right':
+                self.move_piece_horizontal(1)
+            elif action == 'drop':
+                self.hard_drop()
+                self.demo_ai_action = None  # 完成一次完整操作
+                self.demo_ai_step = 0
+                return True  # 表示完成
+            
+            self.demo_ai_step += 1
+        
+        return False  # 还在执行中
+    
+    def enter_demo_mode(self):
+        """进入演示模式"""
+        self.demo_mode = True
+        self.reset_game(self.selected_level)
+        self.demo_ai_delay = 0.0
+        self.demo_ai_action = None
+        self.demo_ai_step = 0
+        self.demo_ai_target_info = None
+    
+    def exit_demo_mode(self):
+        """退出演示模式"""
+        self.demo_mode = False
+        self.idle_timer = 0.0
+        self.is_game_over = True  # 让玩家选择是否开始新游戏
     
     def reset_game(self, start_level=1):
         """重置游戏状态"""
@@ -700,6 +1152,9 @@ class TetrisGame(pyglet.window.Window):
         self.score = 0
         self.level = start_level
         self.lines_cleared = 0
+        
+        # 消行技术统计
+        self.line_stats = {1: 0, 2: 0, 3: 0, 4: 0}
         
         # 7-Bag 初始化
         self.bag = self._fill_bag()
@@ -748,6 +1203,10 @@ class TetrisGame(pyglet.window.Window):
         """生成新方块"""
         self.current_piece_type = self.next_piece_type
         self.current_piece_matrix = self.next_piece_matrix
+        
+        # 清除演示模式的目标信息
+        if self.demo_mode:
+            self.demo_ai_target_info = None
         
         # 7-Bag 抽签
         self.next_piece_type = self._get_next_from_bag()
@@ -898,7 +1357,7 @@ class TetrisGame(pyglet.window.Window):
     
     def hold_piece(self):
         """暂存方块"""
-        if not self.can_hold or self.is_paused or self.is_game_over:
+        if not self.hold_enabled or not self.can_hold or self.is_paused or self.is_game_over:
             return
         
         if self.hold_piece_type is None:
@@ -937,6 +1396,10 @@ class TetrisGame(pyglet.window.Window):
                 # T-Spin 0 行也有 100 分
                 self.score += 100
             return
+
+        # 更新技术统计
+        if lines_count in self.line_stats:
+            self.line_stats[lines_count] += 1
 
         # 基础得分逻辑优化
         line_bonuses = {1: 100, 2: 300, 3: 500, 4: 800}
@@ -996,6 +1459,14 @@ class TetrisGame(pyglet.window.Window):
     
     def on_key_press(self, symbol, modifiers):
         """键盘按下事件"""
+        # === 演示模式退出逻辑 ===
+        if self.demo_mode:
+            self.exit_demo_mode()
+            return  # 退出演示模式，不处理其他输入
+        
+        # 重置静置计时器（玩家有操作）
+        self.idle_timer = 0.0
+        
         self.input_handler.keys_pressed.add(symbol)
         
         # 过滤 OS 的自动重复事件
@@ -1018,6 +1489,10 @@ class TetrisGame(pyglet.window.Window):
         if self.is_game_over:
             if symbol in (key.TAB, key.S):
                 self.selected_level = 100 if self.selected_level == 1 else 1
+            if symbol == key.H: # H 键切换暂存
+                self.hold_enabled = not self.hold_enabled
+                self._update_sidebar_layout() # 更新实时布局
+                self.play_sound('move')
             if symbol in (key.ENTER, key.SPACE, key._1, key._2):
                 self.reset_game(self.selected_level)
             return
@@ -1045,6 +1520,26 @@ class TetrisGame(pyglet.window.Window):
     
     def handle_gamepad_input(self, dt):
         """处理手柄输入及组合键重置"""
+        # === 演示模式退出逻辑（手柄） ===
+        if self.demo_mode and self.joysticks:
+            # 检测任意手柄按键
+            js = self.joysticks[0]
+            try:
+                if any(js.buttons) or abs(getattr(js, 'x', 0)) > 0.3 or abs(getattr(js, 'y', 0)) > 0.3:
+                    self.exit_demo_mode()
+                    return
+            except:
+                pass
+        
+        # 手柄操作重置静置计时器
+        if self.joysticks:
+            js = self.joysticks[0]
+            try:
+                if any(js.buttons) or abs(getattr(js, 'x', 0)) > 0.3 or abs(getattr(js, 'y', 0)) > 0.3:
+                    self.idle_timer = 0.0
+            except:
+                pass
+        
         # --- 软重置逻辑 (Select + Start 按住 1 秒) ---
         is_select_down = False
         is_start_down = False
@@ -1093,6 +1588,12 @@ class TetrisGame(pyglet.window.Window):
             # Select 键：切换难度
             if self.input_handler.check_gamepad_trigger(joystick, [7, 9]):
                 self.selected_level = 100 if self.selected_level == 1 else 1
+            
+            # X/Y 键：切换暂存 (按钮 2, 3)
+            if self.input_handler.check_gamepad_trigger(joystick, [2, 3]):
+                self.hold_enabled = not self.hold_enabled
+                self._update_sidebar_layout() # 更新实时布局
+                self.play_sound('move')
             
             # A 键：开始游戏
             if self.input_handler.check_gamepad_trigger(joystick, [0]):
@@ -1174,10 +1675,50 @@ class TetrisGame(pyglet.window.Window):
     def update(self, dt):
         """主更新循环"""
         self.ui_time += dt
-        self.handle_gamepad_input(dt)
-        self.input_handler.update_move_timers(dt)
-        self.update_movement(dt)
         
+        # 处理手柄输入和组合重置
+        self.handle_gamepad_input(dt)
+        
+        # === 演示模式逻辑 ===
+        if self.demo_mode:
+            # 演示模式下，检查是否达到目标分数 (demo_target_score 为 0 表示没有限制)
+            if self.demo_target_score > 0 and self.score >= self.demo_target_score:
+                self.exit_demo_mode()
+                return
+            
+            # 演示模式下Game Over自动重新开始
+            if self.is_game_over:
+                self.reset_game(self.selected_level)
+                self.demo_ai_action = None
+                return
+            
+            # AI自动玩游戏
+            if not self.is_paused:
+                self.demo_ai_delay += dt
+                
+                # AI执行延迟
+                if self.demo_ai_delay >= 0.05:
+                    self.demo_ai_delay = 0.0
+                    
+                    if self.demo_ai_action is None:
+                        # 计算最佳移动，并尝试执行
+                        best_rot, best_x, best_score, best_y, best_mat, should_hold = self.ai_find_best_move()
+                        self.ai_execute_move(best_rot, best_x, should_hold)
+                    else:
+                        self.ai_execute_move(0, 0)
+        else:
+            # 非演示模式：静置检测
+            if self.is_game_over:
+                self.idle_timer += dt
+                if self.idle_timer >= self.idle_threshold:
+                    self.enter_demo_mode()
+                    return
+        
+        # 更新移动输入（DAS/ARR）
+        self.update_movement(dt)
+        self.input_handler.update_move_timers(dt)
+        
+        # 游戏逻辑更新
         if not self.is_paused and not self.is_game_over:
             # 软降落键盘支持
             if key.DOWN in self.input_handler.keys_pressed:
@@ -1215,6 +1756,13 @@ class TetrisGame(pyglet.window.Window):
         self.labels['score_value'].text = str(self.score)
         self.labels['level_value'].text = str(self.level)
         
+        # 更新技术统计文字
+        if hasattr(self, 'line_stats'):
+            self.labels['stat_1'].text = f"单行: {self.line_stats[1]}"
+            self.labels['stat_2'].text = f"双行: {self.line_stats[2]}"
+            self.labels['stat_3'].text = f"三行: {self.line_stats[3]}"
+            self.labels['stat_4'].text = f"四行: {self.line_stats[4]}"
+        
         # 更新游戏区UI
         self.update_arena_ui()
         
@@ -1235,7 +1783,7 @@ class TetrisGame(pyglet.window.Window):
         self.update_particles_ui()
         
         # 更新叠加层
-        if self.is_paused or self.is_game_over:
+        if (self.is_paused or self.is_game_over) and not self.demo_mode:
             R = self.pixel_ratio
             if self.is_game_over:
                 if self.score == 0:
@@ -1246,9 +1794,12 @@ class TetrisGame(pyglet.window.Window):
                     self.overlay_title.color = (244, 63, 94, 255) # 玫瑰红
                 
                 is_hard = self.selected_level > 1
-                self.overlay_mode.text = "模式: " + ("硬核模式 (Lv.100)" if is_hard else "普通模式")
+                mode_str = "硬核模式 (Lv.100)" if is_hard else "普通模式"
+                hold_str = "暂存: [开]" if self.hold_enabled else "暂存: [关]"
+                self.overlay_mode.text = f"模式: {mode_str}  |  {hold_str}"
                 self.overlay_mode.color = (251, 146, 60, 255) if is_hard else (45, 212, 191, 255) # 橙色 vs 青色
-                self.overlay_hint.text = "[Select] 切换难度   |   [Start] 点击开始"
+                
+                self.overlay_hint.text = "[Select] 难度  |  [H/XY] 暂存  |  [Start] 开始"
                 self.overlay_mode.visible = True
             else:
                 self.overlay_title.text = "游  戏  暂  停"
@@ -1306,6 +1857,8 @@ class TetrisGame(pyglet.window.Window):
             self.overlay_box_bg.visible = False
             self.overlay_box_border.visible = False
             self.overlay_mode.visible = False
+            self.overlay_title.text = ""  # 清除标题文字
+            self.overlay_hint.text = ""   # 清除提示文字
             for acc in self.overlay_accents: acc.visible = False
         
         # 按顺序绘制
@@ -1316,7 +1869,7 @@ class TetrisGame(pyglet.window.Window):
         self.batch_particles.draw()
         self.batch_ui.draw()
         
-        if self.is_paused or self.is_game_over:
+        if self.is_paused or self.is_game_over or self.demo_mode:
             self.batch_overlay.draw()
     
     def update_arena_ui(self):
@@ -1405,17 +1958,18 @@ class TetrisGame(pyglet.window.Window):
     
     def update_preview_ui(self):
         """更新预览UI（暂存和下一个）"""
-        G = self.grid_size
-        P = self.padding
-        
         # 更新暂存方块
-        if self.hold_piece_type:
-            self.update_preview_piece(
-                SHAPES[self.hold_piece_type],
-                self.hold_piece_rects,
-                self.offset_hold,
-                dimmed=not self.can_hold
-            )
+        if self.hold_enabled:
+            if self.hold_piece_type:
+                self.update_preview_piece(
+                    SHAPES[self.hold_piece_type],
+                    self.hold_piece_rects,
+                    self.offset_hold,
+                    dimmed=not self.can_hold
+                )
+            else:
+                for rect in self.hold_piece_rects:
+                    rect.visible = False
         else:
             for rect in self.hold_piece_rects:
                 rect.visible = False
