@@ -3,16 +3,31 @@
 - Retina HiDPI 适配 & OrderedGroup 层级管理
 - 全局粒子池 & 模块化输入 + 合成音效
 """
+import os
+import sys
+import random
+import math
+import io
+import struct
+import wave
+import time
+
+# === 隐藏 macOS 系统冗余打印 (必须在 import pyglet 之前执行) ===
+os.environ['APPLE_PERSISTENCE_IGNORE_STATE'] = 'YES'
+
+# === 打印友好启动信息 ===
+print("=" * 60)
+print("      🚀 TETRIS PRIME - GENERATION 4 AI EDITION")
+print("=" * 60)
+print("  Status:    Initialize Graphics Engine...")
+print("  Platform:  " + sys.platform.title() + " (" + os.uname().machine + ")")
+print("  Version:   v5.0-Stable")
+print("  AI Mode:   Decision-Based Evaluator Active")
+print("=" * 60)
+
 import pyglet
 from pyglet import shapes, text, clock
 from pyglet.window import key
-import random
-import os
-import time
-import io
-import struct
-import math
-import wave
 
 # === 游戏常量 ===
 GRID_SIZE = 24
@@ -24,25 +39,31 @@ PADDING = 20
 # 全局粒子限制（防止内存泄漏）
 MAX_PARTICLES = 1000
 
-# 输入参数
-DAS_DELAY = 0.180  # 延迟自动重复
-ARR_DELAY = 0.040  # 自动重复速率
-LOCK_DELAY = 0.500  # 落地锁定延迟
+# AI 战术与评分权重系统
+AI_SEARCH_LIMIT = 8                # AI 搜索时选取的精英候选数量
+AI_TETRIS_REWARD = 10000000.0      # 消四行的战略级奖励
+AI_I_PIECE_WASTE_PENALTY = 30000000.0 # 浪费竖条的核威慑级罚金
+AI_WELL_ABUSE_PENALTY = 15000000.0 # 随地填井的战略级罚金
+AI_MELTDOWN_PENALTY = 100000000.0  # 井位堵死的毁灭级惩罚
+AI_HOLE_PENALTY = 50000000.0      # 地基空洞的重罚基数
+AI_BLOCK_COVER_PENALTY = 5000000.0 # 遮盖空洞的严厉惩罚
+AI_BUMPINESS_PENALTY = 85000.0      # 地基平整度惩罚 (核心指标：史诗级加强)
+AI_ROW_TRANSITION_PENALTY = 15000.0# 行边界转换惩罚
+AI_COL_TRANSITION_PENALTY = 15000.0# 列边界转换惩罚
+AI_HEIGHT_PENALTY = 300.0          # 堆叠总高度惩罚
+AI_MAX_HEIGHT_PENALTY = 3000.0     # 堆叠峰值高度惩罚
+AI_LANDING_PENALTY = 300.0         # 落地位置过高的惩罚
+AI_ROW_INTEGRITY_FACTOR = 1000.0  # 满行程度的激励系数
+AI_SKYSCRAPER_PENALTY = 8000000.0 # 强制削减 13 列摩天楼 (八百万级/行)
 
-# AI 战术常量
-AI_MELTDOWN_PENALTY = 100000000.0  # 库存铁律熔断罚金
-AI_HOLE_PENALTY = 50000000.0      # 地基空洞重罚
-AI_WELL_BONUS = 20000.0            # 井区奖励基数
-AI_WELL_PENALTY = 5000000.0        # 井区高度差惩罚
-AI_ROW_INTEGRITY_FACTOR = 1000.0  # 行完整性奖励系数
-AI_BUMPINESS_PENALTY = 5000.0      # 平整度惩罚
-AI_ROW_TRANSITION_PENALTY = 15000.0# 行转换惩罚
-AI_COL_TRANSITION_PENALTY = 15000.0# 列转换惩罚
-AI_HEIGHT_PENALTY = 300.0          # 总物体高度惩罚
-AI_MAX_HEIGHT_PENALTY = 3000.0     # 最高点惩罚
-AI_LANDING_PENALTY = 200.0         # 落点高度惩罚
-AI_BLOCK_COVER_PENALTY = 5000000.0 # 严惩遮盖
+# 资源配置
+FONT_PATH = "fonts/Sarasa-Regular.ttc" # 优先使用的字体路径
+SFX_FILENAME = "sfx.wav"               # 内存生成的临时音效文件名
 
+# 系统动力学参数
+DAS_DELAY = 0.180  # 自动重复延迟 (延迟自动重复)
+ARR_DELAY = 0.040  # 自动重复速率 (自动重复速率)
+LOCK_DELAY_LIMIT = 0.500  # 方块落地后的锁定缓冲时间
 # 颜色定义
 COLORS = [
     (0, 0, 0),           # 0: 背景
@@ -130,7 +151,8 @@ class InputHandler:
                 axis_name, threshold, greater_than = axis_config
                 axis_value = getattr(joystick, axis_name, 0)
                 is_pressed = (axis_value > threshold) if greater_than else (axis_value < threshold)
-        except Exception: pass
+        except Exception as e:
+            print(f"[!] Warning: Gamepad state detection error: {e}")
         
         # 生成按键组的唯一标识
         button_id = tuple(sorted(buttons)) + (axis_config or ())
@@ -209,19 +231,32 @@ class TetrisGame(pyglet.window.Window):
             ratio = temp.get_pixel_ratio()
             temp.close()
             return ratio
-        except Exception: return 1.0
+        except Exception as e:
+            print(f"[!] Rendering scale fallback: {e}")
+            return 1.0
     
     def _initialize_joysticks(self):
         joysticks = []
         try:
             for joystick in pyglet.input.get_joysticks():
                 joystick.open(); joysticks.append(joystick)
-        except Exception: pass
+        except Exception as e:
+            print(f"[!] Warning: Joystick initialization error: {e}")
         return joysticks
     
     def _initialize_fonts(self):
-        self.font_name = 'Sarasa UI SC' if os.path.exists(os.path.join(os.path.dirname(__file__), 'fonts', 'Sarasa-Regular.ttc')) else 'sans-serif'
-        if self.font_name != 'sans-serif': pyglet.font.add_file(os.path.join(os.path.dirname(__file__), 'fonts', 'Sarasa-Regular.ttc'))
+        """初始化游戏字体系统"""
+        self.font_name = 'sans-serif'
+        try:
+            # 优先从资源目录加载自定义字体
+            if os.path.exists(FONT_PATH):
+                pyglet.font.add_file(FONT_PATH)
+                self.font_name = 'Sarasa UI SC'
+            else:
+                print(f"[!] Warning: Custom font not found at {FONT_PATH}, falling back to system default.")
+        except Exception as e:
+            print(f"[!] Warning: Font system initialization error: {e}")
+
         R = self.pixel_ratio
         self.font_size_large, self.font_size_main = int(28*R), int(20*R)
         self.font_size_small, self.font_size_hint = int(11*R), int(10*R)
@@ -243,7 +278,7 @@ class TetrisGame(pyglet.window.Window):
         }
         for n, notes in sound_defs.items():
             samples = self._synthesize_notes(notes, sample_rate)
-            self.sound_effects[n] = pyglet.media.load('sfx.wav', file=self._create_wav_buffer(samples, sample_rate), streaming=False)
+            self.sound_effects[n] = pyglet.media.load(SFX_FILENAME, file=self._create_wav_buffer(samples, sample_rate), streaming=False)
     
     def _synthesize_notes(self, notes, sample_rate):
         samples = []
@@ -322,7 +357,9 @@ class TetrisGame(pyglet.window.Window):
         """播放音效 (带自动清理和并发限制)"""
         try:
             self.active_sound_players = [p for p in self.active_sound_players if p.playing]
-        except Exception: self.active_sound_players = []
+        except Exception as e:
+            print(f"[!] Sound engine init error: {e}")
+            self.active_sound_players = []
         
         # 限制最大同时播放数量，防止内存泄漏
         if len(self.active_sound_players) >= 50:
@@ -332,8 +369,8 @@ class TetrisGame(pyglet.window.Window):
             try:
                 player = self.sound_effects[sound_name].play()
                 self.active_sound_players.append(player)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[!] Warning: Sound play instance error: {e}")
     
     def _initialize_graphics(self):
         # 创建渲染批次
@@ -524,8 +561,7 @@ class TetrisGame(pyglet.window.Window):
             kl = text.Label("", font_name=self.font_name, font_size=self.font_size_hint, weight='bold', color=(255,255,255,255), batch=self.batch_ui, group=self.ui_group_foreground)
             al = text.Label("", font_name=self.font_name, font_size=self.font_size_hint, color=(*TEXT_GREY,255), batch=self.batch_ui, group=self.ui_group_foreground)
             self.hint_labels.extend([kl, al])
-        self._update_sidebar_layout()
-
+        
         self._update_sidebar_layout()
         
     def _update_sidebar_layout(self):
@@ -556,132 +592,160 @@ class TetrisGame(pyglet.window.Window):
     
     # ===== AI 演示模式核心算法 =====
     
-    def ai_evaluate_board(self, test_arena, lines_cleared, is_high_risk, landing_y=None, piece_x=0):
-        """
-        AI 核心评估算法：
-        - 13+1 策略：在右侧保留一列用于消四行（Tetris）。
-        - 咬合度 (Transitions)：衡量棋盘的紧凑程度，减少缝隙。
-        - 高度压制：根据水位线动态调整惩罚，防止堆叠过高。
-        - 熔断机制：防止在库存（右侧井区）未消化时继续盲目堆叠。
-        """
-        cols = len(test_arena[0])
-        rows = len(test_arena)
-        
-        # 1. 高度与转换
-        col_heights = [next((rows - y for y in range(rows) if test_arena[y][x]), 0) for x in range(cols)]
-        max_h, main_well_col = max(col_heights), cols - 1
-        
-        # 咬合度 (Transitions) 计算
-        row_transitions = sum((test_arena[y][x] > 0) != (test_arena[y][x+1] > 0) for y in range(rows) for x in range(cols-1))
-        row_transitions += sum(1 for y in range(rows) if test_arena[y][0] == 0) + sum(1 for y in range(rows) if test_arena[y][cols-1] == 0)
-        col_transitions = sum((test_arena[y][x] > 0) != (test_arena[y+1][x] > 0) for x in range(cols) for y in range(rows-1))
-        col_transitions += sum(1 for x in range(cols) if test_arena[rows-1][x] == 0)
-
-        # 2. 空洞与遮盖监控
+    def _analyze_holes(self, arena, rows, cols):
+        """扫描并返回空洞数量及上方遮盖的块数"""
         holes, blocks_above_holes = 0, 0
         for x in range(cols):
             blocks = 0
             for y in range(rows):
-                if test_arena[y][x]: 
+                if arena[y][x]: 
                     blocks += 1
                 elif blocks: 
                     holes += 1
                     blocks_above_holes += blocks
-        
-        # 3. 井位分析与 13+1 策略
+        return holes, blocks_above_holes
+
+    def _analyze_wells(self, col_heights, rows, main_well_col):
+        """扫描所有列的井位深度"""
         wells = []
+        cols = len(col_heights)
         for x in range(cols):
             l = col_heights[x-1] if x > 0 else rows
             r = col_heights[x+1] if x < cols - 1 else rows
             if (depth := min(l, r) - col_heights[x]) > 0:
                 wells.append((depth, x))
+        return wells
+
+    def ai_evaluate_board(self, test_arena, lines_cleared, is_high_risk, landing_y=None, piece_x=0, piece_type=None, piece_mat=None):
+        """
+        AI 核心评估算法：模块化重构版
+        """
+        cols, rows = len(test_arena[0]), len(test_arena)
+        main_well_col = cols - 1
         
-        left_heights = col_heights[:main_well_col]
+        # 1. 基础状态分析 (提取 col_heights)
+        col_heights = [next((rows - y for y in range(rows) if test_arena[y][x]), 0) for x in range(cols)]
+        max_h = max(col_heights)
+        
+        # 2. 调用模块化工具扫描空洞和井位
+        holes, blocks_above_holes = self._analyze_holes(test_arena, rows, cols)
+        wells = self._analyze_wells(col_heights, rows, main_well_col)
+        
+        # 3. 转换率 (Transitions) 计算
+        row_transitions = sum((test_arena[y][x] > 0) != (test_arena[y][x+1] > 0) for y in range(rows) for x in range(cols-1))
+        row_transitions += sum(1 for y in range(rows) if test_arena[y][0] == 0) + sum(1 for y in range(rows) if test_arena[y][cols-1] == 0)
+        col_transitions = sum((test_arena[y][x] > 0) != (test_arena[y+1][x] > 0) for x in range(cols) for y in range(rows-1))
+        col_transitions += sum(1 for x in range(cols) if test_arena[rows-1][x] == 0)
+
+        # 4. 战术分析：13+1 策略监控
+        # 修正：left_heights 仅包含地基 (0-11列)，排除第 12 索引列 (即第 13 列墙体)
+        left_heights = col_heights[:main_well_col - 1]
         left_max = max(left_heights) if left_heights else 0
         left_min = min(left_heights) if left_heights else 0
-        left_avg = sum(left_heights) / float(len(left_heights)) if left_heights else 0.0
-        h14 = col_heights[main_well_col]
-
-        # 战术蓄力判定
-        left_full_rows = sum(1 for y in range(rows) if all(test_arena[y][x] for x in range(main_well_col)))
-        well_penalty, right_well_reward = 0, 0
-
-        if is_high_risk:
-            well_penalty = sum(w[0] for w in wells) * 1000.0
-        else:
-            h13 = col_heights[main_well_col - 1]
-            emergency_mode = (left_max > 6)
-            if h13 > h14:
-                right_well_reward = (min(h13-h14, left_max+1) ** 2) * 20000.0 + 100000.0
-            elif h14 > h13:
-                well_penalty += (h14 - h13) * 5000000.0
-            
-            well_penalty += sum((d**2) * 100000.0 for d, x in wells if x != main_well_col)
-            if left_heights and (diff := h14 - min(left_heights)) > 2:
-                well_penalty += diff * (10000.0 if not emergency_mode else 1000.0)
-
-        row_integrity_bonus = sum((sum(1 for x in range(main_well_col) if test_arena[y][x]>0)**2) * AI_ROW_INTEGRITY_FACTOR for y in range(rows))
+        left_avg = sum(left_heights) / float(len(left_heights)) if left_heights else 0
+        h14, h13 = col_heights[main_well_col], col_heights[main_well_col - 1]
         
-        low_point_penalty = (left_max - left_min) * 50000.0 if left_max - left_min > 1 else 0
-        if left_heights:
-            low_point_penalty += sum(((left_max - h)**2) * 30000.0 for h in left_heights if h < left_max)
-
-        stack_building_penalty = 800000.0 if 0 < lines_cleared < 4 and left_full_rows < 3 and not is_high_risk and max_h <= 6 else 0
-        left_bumpiness = sum((col_heights[x] - col_heights[x+1])**2 for x in range(main_well_col - 1))
-
-        # 4. 消行收益
+        well_reward, well_penalty = 0, 0
         if is_high_risk:
-            line_bonus = {0:0, 1:20000, 2:50000, 3:120000, 4:400000}[lines_cleared]
+            # 高危保命：适度惩罚散井，防止恐慌
+            well_penalty += sum((d**2) * 150000.0 for d, x in wells if x != main_well_col)
+            if h13 > h14 and h14 < 5: 
+                well_reward = (min(h13-h14, left_max+1) ** 2) * 15000.0 + 50000.0
         else:
-            # 必杀判定：地基 >= 5 且 14 列为空
-            if left_avg >= 5 and h14 <= 1 and lines_cleared == 4:
-                line_bonus = 50000000.0
-            else:
-                line_bonus = {0: 0, 1: -5000, 2: 5000, 3: 20000, 4: 1000000}[lines_cleared]
+            # 平时战术：严禁堵井，积极蓄力
+            well_penalty += sum((d**2) * 100000.0 for d, x in wells if x != main_well_col)
+            if h13 > h14:
+                well_reward = (min(h13-h14, left_max+1) ** 2) * 20000.0 + 100000.0
+            elif h14 > h13:
+                well_penalty += (h14 - h13) * AI_WELL_ABUSE_PENALTY
+        
+        # 4.5 重点防护：防止 13 列过高 (Skyscraper Penalty)
+        # 修正：以地基“平均高度”为准进行限高，强迫 AI 必须推平地基才能涨墙
+        tower_diff = h13 - left_avg
+        if tower_diff > 3:
+            well_penalty += (tower_diff - 3) * AI_SKYSCRAPER_PENALTY
+            
+        # 4.6 注入“天平约束”：防止左右失衡导致的侧重现象
+        mid = (main_well_col - 1) // 2
+        l_side_avg = sum(left_heights[:mid]) / float(mid) if mid > 0 else 0
+        r_side_avg = sum(left_heights[mid:]) / float(len(left_heights)-mid) if mid < len(left_heights) else 0
+        balance_penalty = abs(l_side_avg - r_side_avg) * 150000.0 if abs(l_side_avg - r_side_avg) > 2 else 0
 
-        # 5. 评分整合
-        agg_h, max_h = sum(col_heights), max(col_heights)
-        h_penalty = 60.0 if is_high_risk else 1.0
-        landing_penalty = (rows - landing_y) * 200.0 if landing_y is not None else 0
+        # 5. 精确检测：本次移动是否污染了 14 列井位 (像素级)
+        occupies_well = False
+        if piece_mat:
+            for y_offset, row in enumerate(piece_mat):
+                for x_offset, val in enumerate(row):
+                    if val and (piece_x + x_offset) == main_well_col:
+                        occupies_well = True; break
+                if occupies_well: break
+
+        # 6. 确定消行奖金阶梯 (使用 .get 增加安全性)
+        if is_high_risk:
+            line_bonus = {0:0, 1:100000.0, 2:150000.0, 3:50000000.0, 4:100000000.0}.get(lines_cleared, 0)
+        else:
+            line_bonus = {0:0, 1:-50000.0, 2:-20000.0, 3:2000000.0, 4:AI_TETRIS_REWARD}.get(lines_cleared, 0)
+
+        # 7. 评分系统大融合
+        h_pen_mult = 100.0 if is_high_risk else 15.0
+        landing_penalty = (rows - landing_y) * AI_LANDING_PENALTY if landing_y is not None else 0
+        # 修正：平整度计算范围缩减，避免墙体（13列）拉动地基右侧长高
+        left_bumpiness = sum((col_heights[x] - col_heights[x+1])**2 for x in range(main_well_col - 2))
+        row_integrity = sum((sum(1 for x in range(main_well_col) if test_arena[y][x]>0)**2) * AI_ROW_INTEGRITY_FACTOR for y in range(rows))
+
+        # 7.5 注入“中心引力”：鼓励方块向中间靠拢，防止两侧成山
+        center_pref = 0
+        if piece_x is not None:
+            dist_from_center = abs(piece_x + (len(piece_mat[0]) / 2.0) - (cols / 2.0))
+            center_pref = (1.0 - (dist_from_center / (cols / 2.0))) * 15000.0
+
+        # 7.6 注入“平整度统治力”：不仅要相邻平整，还要整体高度可控
+        base_variance = (left_max - left_min) * 50000.0
 
         score = (
-            line_bonus 
-            + right_well_reward
-            + row_integrity_bonus
-            - (agg_h * AI_HEIGHT_PENALTY * h_penalty)
+            line_bonus + well_reward + row_integrity + center_pref
+            - (sum(col_heights) * AI_HEIGHT_PENALTY * h_pen_mult)
             - (row_transitions * AI_ROW_TRANSITION_PENALTY)
             - (col_transitions * AI_COL_TRANSITION_PENALTY) 
-            - (left_bumpiness * AI_BUMPINESS_PENALTY)
-            - (low_point_penalty * 10.0)
-            - (stack_building_penalty)      
-            - (holes * AI_HOLE_PENALTY * h_penalty)
+            - (left_bumpiness * AI_BUMPINESS_PENALTY * (5.0 if not is_high_risk else 3.5))
+            - (holes * AI_HOLE_PENALTY * h_pen_mult)
             - (blocks_above_holes * AI_BLOCK_COVER_PENALTY)
-            - well_penalty
-            - (max_h * AI_MAX_HEIGHT_PENALTY * h_penalty)
-            - (landing_penalty)
+            - well_penalty - base_variance - balance_penalty
+            - (max_h * AI_MAX_HEIGHT_PENALTY * h_pen_mult)
+            - (landing_penalty * 2.5)
         )
 
-        # 6. 库存铁律熔断 (Digestion Control)
-        # 如果 14 列已经有东西 (h14 > 1) 且这一手不消行，严禁往右侧井区加码
-        if h14 > 1 and lines_cleared == 0 and piece_x > 10:
-             score -= AI_MELTDOWN_PENALTY
-             
+        # 8. 注入铁律罚金：全时段战略储备
+        if not is_high_risk and occupies_well and lines_cleared < 3:
+            score -= AI_I_PIECE_WASTE_PENALTY if piece_type == 'I' else AI_WELL_ABUSE_PENALTY
+
         return score
 
     def ai_find_best_move(self):
         """二级搜索：评估当前与暂存方块的所有落点"""
-        actual_h = next((GAME_ROWS - y for y in range(GAME_ROWS) if any(self.arena[y])), 0)
-        self.ai_conservative_mode = actual_h > (GAME_ROWS * 0.5) if actual_h >= 6 else self.ai_conservative_mode
+        col_h = [next((GAME_ROWS - y for y in range(GAME_ROWS) if self.arena[y][x]), 0) for x in range(GAME_COLS)]
+        avg_h = sum(col_h) / float(GAME_COLS)
+        
+        # 调节后的保命开关：平均高度 > 10 (约 1/3 高度) 进入，低于 3 行退出
+        # 注意：在 30 行高度的设置下，10 行 average 已经非常危险了
+        if not self.ai_conservative_mode:
+            if avg_h > 10.0:
+                self.ai_conservative_mode = True
+        else:
+            if avg_h < 3.0:
+                self.ai_conservative_mode = False
+                
         current_mode = self.ai_conservative_mode
         
-        candidates = [{'mat': self.current_piece_matrix, 'hold': False}]
+        candidates = [{'mat': self.current_piece_matrix, 'hold': False, 'type': self.current_piece_type}]
         if self.hold_enabled and self.can_hold:
             h_type = self.hold_piece_type or self.next_piece_type
-            candidates.append({'mat': [row[:] for row in SHAPES[h_type]], 'hold': True})
+            candidates.append({'mat': [row[:] for row in SHAPES[h_type]], 'hold': True, 'type': h_type})
 
         scored_moves1 = []
         for cand in candidates:
             m_base = [row[:] for row in cand['mat']]
+            p_type = cand['type']
             for rot1 in range(4):
                 m1 = [row[:] for row in m_base]
                 for _ in range(rot1):
@@ -694,8 +758,8 @@ class TetrisGame(pyglet.window.Window):
                             y1 += 1
                         
                         arena1, clear1 = self._simulate_placement(self.arena, x1, y1, m1)
-                        s1 = self.ai_evaluate_board(arena1, clear1, current_mode, landing_y=y1, piece_x=x1)
-                        scored_moves1.append((s1, rot1, x1, y1, m1, arena1, cand['hold']))
+                        s1 = self.ai_evaluate_board(arena1, clear1, current_mode, landing_y=y1, piece_x=x1, piece_type=p_type, piece_mat=m1)
+                        scored_moves1.append((s1, rot1, x1, y1, m1, arena1, cand['hold'], p_type))
         
         scored_moves1.sort(key=lambda x: x[0], reverse=True)
         
@@ -704,9 +768,10 @@ class TetrisGame(pyglet.window.Window):
         final_rot, final_x, final_y, final_mat = 0, 0, 0, None
         final_hold = False
         
-        search_limit = 8
-        for s1, rot1, x1, y1, mat1, arena1, is_hold in scored_moves1[:search_limit]:
+        search_limit = AI_SEARCH_LIMIT
+        for s1, rot1, x1, y1, mat1, arena1, is_hold, p1_type in scored_moves1[:search_limit]:
             best_s2, m2_base = float('-inf'), [row[:] for row in self.next_piece_matrix]
+            p2_type = self.next_piece_type
 
             for rot2 in range(4):
                 m2 = [row[:] for row in m2_base]
@@ -719,11 +784,12 @@ class TetrisGame(pyglet.window.Window):
                         while not self._check_collision_static(arena1, {'x': x2, 'y': y2+1}, m2):
                             y2 += 1
                         arena2, clear2 = self._simulate_placement(arena1, x2, y2, m2)
-                        s2 = self.ai_evaluate_board(arena2, clear2, current_mode, landing_y=y2, piece_x=x2)
+                        s2 = self.ai_evaluate_board(arena2, clear2, current_mode, landing_y=y2, piece_x=x2, piece_type=p2_type, piece_mat=m2)
                         if s2 > best_s2:
                             best_s2 = s2
             
-            total_s = s1 + best_s2
+            # 综合评分：当前步评分 + 期望的下一步最佳评分 (0.5 权重，平衡长期收益)
+            total_s = s1 + (best_s2 if best_s2 != float('-inf') else 0) * 0.5
             if total_s > best_overall_score:
                 best_overall_score = total_s
                 final_rot, final_x, final_y, final_mat = rot1, x1, y1, mat1
@@ -1194,7 +1260,8 @@ class TetrisGame(pyglet.window.Window):
                 js = self.joysticks[0]
                 gp_l = (getattr(js, 'x', 0) < -0.5 or getattr(js, 'hat_x', 0) < -0.5)
                 gp_r = (getattr(js, 'x', 0) > 0.5 or getattr(js, 'hat_x', 0) > 0.5)
-            except Exception: pass
+            except Exception as e:
+                print(f"[!] Gamepad input read error: {e}")
         
         # 处理左右移动
         for direction, active, dx in [('left', key_l or gp_l, -1), ('right', key_r or gp_r, 1)]:
@@ -1215,8 +1282,13 @@ class TetrisGame(pyglet.window.Window):
         self.ui_time += dt
         self.handle_gamepad_input(dt)
         if self.demo_mode:
-            if self.demo_target_score > 0 and self.score >= self.demo_target_score: self.exit_demo_mode(); return
-            if self.is_game_over: self.reset_game(self.selected_level); self.demo_ai_action = None; return
+            if self.demo_target_score > 0 and self.score >= self.demo_target_score:
+                self.exit_demo_mode()
+                return
+            if self.is_game_over:
+                self.reset_game(self.selected_level)
+                self.demo_ai_action = None
+                return
             if not self.is_paused:
                 self.demo_ai_delay += dt
                 if self.demo_ai_delay >= 0.02:
@@ -1229,41 +1301,76 @@ class TetrisGame(pyglet.window.Window):
         else:
             if self.is_game_over:
                 self.idle_timer += dt
-                if self.idle_timer >= self.idle_threshold: self.enter_demo_mode(); return
-        self.update_movement(dt); self.input_handler.update_move_timers(dt)
+                if self.idle_timer >= self.idle_threshold:
+                    self.enter_demo_mode()
+                    return
+        
+        self.update_movement(dt)
+        self.input_handler.update_move_timers(dt)
+        
         if not self.is_paused and not self.is_game_over:
-            if key.DOWN in self.input_handler.keys_pressed: self.move_piece_down()
+            if key.DOWN in self.input_handler.keys_pressed:
+                self.move_piece_down()
+            
             is_ground = self.check_collision({'x':self.piece_position['x'], 'y':self.piece_position['y']+1}, self.current_piece_matrix)
             if is_ground:
                 self.lock_delay_timer += dt
-                if self.lock_delay_timer >= self.lock_delay_limit: self.lock_piece()
+                if self.lock_delay_timer >= self.lock_delay_limit:
+                    self.lock_piece()
             else:
                 self.drop_counter += dt
                 fall_speed = max(0.05, 1.0 * (0.9 ** (self.level - 1)))
-                if self.drop_counter >= fall_speed: self.drop_counter = 0; self.move_piece_down()
+                if self.drop_counter >= fall_speed:
+                    self.drop_counter = 0
+                    self.move_piece_down()
         try: self.particles = [p for p in self.particles if p.update(dt)]
-        except Exception: self.particles = []
+        except Exception as e:
+            print(f"[!] Particle reset warning: {e}")
+            self.particles = []
     
     def on_draw(self):
         self.clear()
-        self.labels['score_value'].text, self.labels['level_value'].text = str(self.score), str(self.level)
+        self.labels['score_value'].text = str(self.score)
+        self.labels['level_value'].text = str(self.level)
+        
+        # 视觉反馈：保命模式
+        if self.demo_mode and hasattr(self, 'ai_conservative_mode'):
+            if self.ai_conservative_mode:
+                self.labels['stat_title'].text = "技术统计（保命模式）"
+                self.labels['stat_title'].color = (255, 100, 100, 255)
+            else:
+                self.labels['stat_title'].text = "技术统计"
+                self.labels['stat_title'].color = (148, 163, 184, 255) # TEXT_GREY
+
         if hasattr(self, 'line_stats'):
-            for i in range(1,5): self.labels[f'stat_{i}'].text = f"{['单','双','三','四'][i-1]}行: {self.line_stats[i]}"
+            for i in range(1, 5):
+                self.labels[f'stat_{i}'].text = f"{['单','双','三','四'][i-1]}行: {self.line_stats[i]}"
         self.update_arena_ui()
-        if not self.is_game_over and not self.is_paused: self.update_ghost_piece_ui(); self.update_active_piece_ui()
+        if not self.is_game_over and not self.is_paused:
+            self.update_ghost_piece_ui()
+            self.update_active_piece_ui()
         else:
             for r in (self.active_piece_rects + self.ghost_piece_rects + self.ghost_piece_outlines): r.visible = False
-        self.update_preview_ui(); self.update_particles_ui()
+        self.update_preview_ui()
+        self.update_particles_ui()
         if (self.is_paused or self.is_game_over) and not self.demo_mode:
             R = self.pixel_ratio
             if self.is_game_over:
-                self.overlay_title.text, self.overlay_title.color = ("准  备  开  始" if self.score == 0 else "游  戏  结  束"), ((34,197,94,255) if self.score==0 else (244,63,94,255))
+                if self.score == 0:
+                    self.overlay_title.text = "准  备  开  始"
+                    self.overlay_title.color = (34, 197, 94, 255)
+                else:
+                    self.overlay_title.text = "游  戏  结  束"
+                    self.overlay_title.color = (244, 63, 94, 255)
                 is_h = self.selected_level > 1
                 self.overlay_mode.text = f"模式: {'硬核 (Lv.100)' if is_h else '普通'}  |  暂存: [{'开' if self.hold_enabled else '关'}]"
                 self.overlay_mode.color, self.overlay_hint.text = ((251,146,60,255) if is_h else (45,212,191,255)), "[Select] 难度 / [Start] 开始"
                 self.overlay_mode.visible = True
             else:
-                self.overlay_title.text, self.overlay_title.color, self.overlay_mode.visible, self.overlay_hint.text = "游  戏  暂  停", (56,189,248,255), False, "按下 P 键或功能键继续"
+                self.overlay_title.text = "游  戏  暂  停"
+                self.overlay_title.color = (56, 189, 248, 255)
+                self.overlay_mode.visible = False
+                self.overlay_hint.text = "按下 P 键或功能键继续"
             cx, cy = (self.padding + (GAME_COLS*self.grid_size)//2), self.flip_y(self.padding + (GAME_ROWS*self.grid_size)//2)
             bw, bh = int(300*R), int(180*R)
             bx, by = cx-bw//2, cy-bh//2
@@ -1275,14 +1382,25 @@ class TetrisGame(pyglet.window.Window):
             acc_coords = [(bx,by+bh,bx+al,by+bh),(bx,by+bh,bx,by+bh-al),(bx+bw,by+bh,bx+bw-al,by+bh),(bx+bw,by+bh,bx+bw,by+bh-al),(bx,by,bx+al,by),(bx,by,bx,by+al),(bx+bw,by,bx+bw-al,by),(bx+bw,by,bx+bw,by+al)]
             for i, coords in enumerate(acc_coords):
                 self.overlay_accents[i].x, self.overlay_accents[i].y, self.overlay_accents[i].x2, self.overlay_accents[i].y2, self.overlay_accents[i].visible = *coords, True
-            self.overlay_title.position, self.overlay_mode.position, self.overlay_hint.position = (cx, cy+int(45*R), 0), (cx, cy+int(5*R), 0), (cx, cy-int(40*R), 0)
-            self.overlay_box_bg.visible = self.overlay_box_border.visible = True
+            self.overlay_title.position = (cx, cy + int(45 * R), 0)
+            self.overlay_mode.position = (cx, cy + int(5 * R), 0)
+            self.overlay_hint.position = (cx, cy - int(40 * R), 0)
+            
+            self.overlay_box_bg.visible = True
+            self.overlay_box_border.visible = True
         else:
             self.overlay_box_bg.visible = self.overlay_box_border.visible = self.overlay_mode.visible = False
             self.overlay_title.text = self.overlay_hint.text = ""
             for acc in self.overlay_accents: acc.visible = False
-        self.batch_background.draw(); self.batch_grid.draw(); self.batch_arena.draw(); self.batch_active_piece.draw(); self.batch_particles.draw(); self.batch_ui.draw()
-        if self.is_paused or self.is_game_over or self.demo_mode: self.batch_overlay.draw()
+        self.batch_background.draw()
+        self.batch_grid.draw()
+        self.batch_arena.draw()
+        self.batch_active_piece.draw()
+        self.batch_particles.draw()
+        self.batch_ui.draw()
+        
+        if self.is_paused or self.is_game_over or self.demo_mode:
+            self.batch_overlay.draw()
     
     def update_arena_ui(self):
         G, P = self.grid_size, self.padding
@@ -1375,11 +1493,10 @@ class TetrisGame(pyglet.window.Window):
         for joystick in self.joysticks:
             try:
                 joystick.close()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[!] Error closing joystick: {e}")
         
         super().on_close()
-
 
 if __name__ == "__main__":
     game = TetrisGame()
