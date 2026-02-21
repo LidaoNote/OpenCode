@@ -759,10 +759,10 @@ class TetrisGame(pyglet.window.Window):
         # 调节后的保命开关：平均高度 > 10 (约 1/3 高度) 进入，低于 3 行退出
         # 注意：在 30 行高度的设置下，10 行 average 已经非常危险了
         if not self.ai_conservative_mode:
-            if avg_h > 10.0:
+            if avg_h > 11.0:
                 self.ai_conservative_mode = True
         else:
-            if avg_h < 3.0:
+            if avg_h < 4.0:
                 self.ai_conservative_mode = False
                 
         current_mode = self.ai_conservative_mode
