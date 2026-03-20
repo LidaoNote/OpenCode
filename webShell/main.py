@@ -18,16 +18,47 @@ import struct
 import base64
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateNumbers, RSAPublicNumbers
 from cryptography.hazmat.primitives import serialization
+from cryptography.fernet import Fernet
 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+SECRET_KEY = None
+
+def _load_or_generate_key():
+    global SECRET_KEY
+    key_path = BASE_DIR / ".secret.key"
+    if key_path.exists():
+        with open(key_path, "rb") as f:
+            SECRET_KEY = f.read()
+    else:
+        SECRET_KEY = Fernet.generate_key()
+        with open(key_path, "wb") as f:
+            f.write(SECRET_KEY)
+        os.chmod(str(key_path), 0o600)
+    return Fernet(SECRET_KEY)
+
+def _encrypt_password(password: str) -> str:
+    if not password:
+        return ""
+    f = _load_or_generate_key()
+    return f.encrypt(password.encode()).decode()
+
+def _decrypt_password(encrypted: str) -> str:
+    if not encrypted:
+        return ""
+    try:
+        f = _load_or_generate_key()
+        return f.decrypt(encrypted.encode()).decode()
+    except Exception:
+        return encrypted
+
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://127.0.0.1:8108", "http://localhost:8108"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -42,6 +73,107 @@ USER_KEYS_DIR = BASE_DIR / "UserKeys"
 
 SESSIONS_DIR.mkdir(exist_ok=True)
 USER_KEYS_DIR.mkdir(exist_ok=True)
+QUICK_BUTTONS_DIR = BASE_DIR / "QuickButton"
+
+QUICK_BUTTONS_DIR.mkdir(exist_ok=True)
+
+def _parse_qbl_file(filepath: Path) -> list:
+    try:
+        import configparser
+        c = configparser.ConfigParser()
+        with open(filepath, 'rb') as f:
+            raw = f.read()
+            if raw.startswith(b'\xff\xfe'):
+                content = raw[2:].decode('utf-16-le', errors='ignore')
+            else:
+                content = raw.decode('utf-16-le', errors='ignore')
+        c.read_string(content)
+        
+        if 'Info' not in c or 'QuickButton' not in c:
+            return []
+        
+        buttons = []
+        for key in sorted(c['QuickButton'].keys()):
+            if key.startswith('button_') and key.endswith('_type'):
+                idx = key.split('_')[1]
+                if not idx.isdigit():
+                    continue
+                n = int(idx)
+                btn_type = c['QuickButton'].get(f'button_{n}_type', '1')
+                btn_name = c['QuickButton'].get(f'button_{n}_name', '')
+                btn_action = c['QuickButton'].get(f'button_{n}_action', '')
+                btn_icon = c['QuickButton'].get(f'button_{n}_icon', '0')
+                btn_param = c['QuickButton'].get(f'button_{n}_param', '')
+                btn_desc = c['QuickButton'].get(f'button_{n}_desc', '')
+                
+                if btn_name and btn_action:
+                    action = btn_action
+                    if btn_type == '0':
+                        if btn_action == 'ID_EDIT_PASTE':
+                            action = '__PASTE__'
+                        elif btn_action == 'ID_FILE_RECONN':
+                            action = '__RECONNECT__'
+                        elif btn_action == 'ID_SESSION_DISCONNECT':
+                            action = '__DISCONNECT__'
+                    else:
+                        action = action.replace('\\\\n', '\\n').replace('\\\\r', '\\r')
+                        action = action.replace('\\n', '\n').replace('\\r', '\r').replace('\\;', ';')
+                        action = action.rstrip('\\')
+                    
+                    buttons.append({
+                        'index': n,
+                        'name': btn_name.strip(),
+                        'command': action,
+                        'icon': int(btn_icon) if btn_icon.isdigit() else 0,
+                        'type': int(btn_type) if btn_type.isdigit() else 1,
+                        'param': btn_param,
+                        'desc': btn_desc
+                    })
+        
+        return sorted(buttons, key=lambda x: x.get('index', 0))
+    except Exception as e:
+        logger.error(f"Failed to parse qbl: {e}")
+        return []
+
+def _save_qbl_file(filepath: Path, buttons: list):
+    import configparser
+    
+    c = configparser.ConfigParser()
+    c['Info'] = {
+        'Version': '8.2',
+        'Count': str(len(buttons)),
+        'Expanded': '1'
+    }
+    c['QuickButton'] = {}
+    
+    for i, btn in enumerate(buttons):
+        idx = btn.get('index', i)
+        cmd = btn.get('command', '')
+        btn_type = str(btn.get('type', 1))
+        
+        if cmd == '__PASTE__':
+            action = 'ID_EDIT_PASTE'
+            btn_type = '0'
+        elif cmd == '__RECONNECT__':
+            action = 'ID_FILE_RECONN'
+            btn_type = '0'
+        elif cmd == '__DISCONNECT__':
+            action = 'ID_SESSION_DISCONNECT'
+            btn_type = '0'
+        else:
+            action = cmd.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r').replace(';', '\\;')
+            action = action.rstrip('\\')
+        
+        c['QuickButton'][f'Button_{idx}_Name'] = btn.get('name', '')
+        c['QuickButton'][f'Button_{idx}_Type'] = btn_type
+        c['QuickButton'][f'Button_{idx}_Action'] = action
+        c['QuickButton'][f'Button_{idx}_Icon'] = str(btn.get('icon', 0))
+        c['QuickButton'][f'Button_{idx}_Param'] = btn.get('param', '')
+        c['QuickButton'][f'Button_{idx}_Desc'] = btn.get('desc', '')
+    
+    with open(filepath, 'w', encoding='utf-16-le') as f:
+        f.write('\ufeff')
+        c.write(f, space_around_delimiters=False)
 
 # 接口路由定义在下方
 
@@ -246,7 +378,7 @@ class ConnectionManager:
             conn = await asyncssh.connect(**conn_kwargs)
             process = await conn.create_process(term_type='xterm-256color', term_size=(80, 24), encoding=None)
             
-            session_id = f"{req.host}_{username}_{os.urandom(4).hex()}"
+            session_id = f"{req.host}_{username}_{os.urandom(16).hex()}"
             title = req.name or req.host
             self.active_sessions[session_id] = SSHSession(conn, process, req.host, username, req.port, title)
             logger.info(f"Successfully created session: {session_id}")
@@ -489,12 +621,17 @@ async def sftp_download(session_id: str, path: str):
     if not sftp:
         return JSONResponse(status_code=404, content={"message": "Session not found"})
     
+    tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(mode='wb', delete=False) as tmp:
             await sftp.get(path, tmp.name, preserve=True)
             tmp_path = tmp.name
-        return FileResponse(tmp_path, filename=os.path.basename(path))
+        response = FileResponse(tmp_path, filename=os.path.basename(path))
+        response.background = None
+        return response
     except Exception as e:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
         return JSONResponse(status_code=500, content={"message": str(e)})
 
 @app.post("/sftp/upload/{session_id}")
@@ -503,17 +640,24 @@ async def sftp_upload(session_id: str, remote_path: str = Form(...), file: Uploa
     if not sftp:
         return JSONResponse(status_code=404, content={"message": "Session not found"})
     
+    filename = file.filename or "uploaded_file"
+    tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(mode='wb', delete=False) as tmp:
             content = await file.read()
             tmp.write(content)
             tmp_path = tmp.name
         
-        await sftp.put(tmp_path, os.path.join(remote_path, file.filename))
-        os.unlink(tmp_path)
+        await sftp.put(tmp_path, os.path.join(remote_path, filename))
         return {"message": "Success"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"message": str(e)})
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
 
 class TransferRequest(BaseModel):
     direction: str  # 传输方向："upload"（上传）或 "download"（下载）
@@ -566,7 +710,9 @@ async def local_read(path: str):
 @app.post("/local/write")
 async def local_write(data: dict):
     path = data.get("path")
-    content = data.get("content", "")
+    content = data.get("content", "") or ""
+    if not path:
+        return JSONResponse(status_code=400, content={"message": "Path is required"})
     try:
         with open(path, 'w', encoding='utf-8') as f:
             f.write(content)
@@ -584,9 +730,8 @@ async def local_list(path: str = str(Path.home())):
             return JSONResponse(status_code=404, content={"message": "Path not found"})
         
         result = []
-        # 在列表中加入上级目录指示项（".."），便于前端导航到上级目录
         if os.path.dirname(resolved_path) != resolved_path:
-             result.append({
+            result.append({
                 "name": "..",
                 "is_dir": True,
                 "size": 0,
@@ -605,7 +750,6 @@ async def local_list(path: str = str(Path.home())):
                     "mtime": stat.st_mtime
                 })
             except OSError:
-                # 跳过因权限问题无法访问的文件
                 pass
         return {"path": resolved_path, "files": result}
     except Exception as e:
@@ -723,8 +867,13 @@ async def list_sessions():
                                     "host": get_val(["CONNECTION", "Connection"], ["Host"]),
                                     "port": get_val(["CONNECTION", "Connection"], ["Port"], "22"),
                                     "user": get_val(["CONNECTION:AUTHENTICATION", "Authentication", "CONNECTION", "Connection"], ["UserName", "username"]),
-                                    "pass": get_val(["CONNECTION:AUTHENTICATION", "Authentication"], ["Password", "password"])
+                                    "pass": _decrypt_password(get_val(["CONNECTION:AUTHENTICATION", "Authentication"], ["Password", "password"])),
+                                    "method": get_val(["CONNECTION:AUTHENTICATION", "Authentication"], ["Method"], "Password"),
+                                    "key_name": get_val(["CONNECTION:AUTHENTICATION", "Authentication"], ["KeyName"], ""),
                                 })
+                                
+                                if session_data.get("method", "").lower() == "publickey":
+                                    session_data["use_key"] = True
                                 break
                     except:
                         # 无法以该编码读取时继续尝试下一个编码
@@ -737,11 +886,17 @@ async def list_sessions():
 @app.post("/sessions/mkdir")
 async def make_session_dir(data: dict):
     path = data.get("path", "")
-    # 基本路径清理（移除上级引用，避免目录穿越）
-    path = path.replace("..", "").strip("/")
-    if not path: return JSONResponse(status_code=400, content={"message": "Invalid path"})
+    if not path:
+        return JSONResponse(status_code=400, content={"message": "Invalid path"})
     
-    full_path = os.path.join(SESSIONS_DIR, path)
+    full_path = SESSIONS_DIR / path
+    try:
+        resolved = full_path.resolve()
+        if not str(resolved).startswith(str(SESSIONS_DIR.resolve())):
+            return JSONResponse(status_code=400, content={"message": "Invalid path"})
+    except Exception:
+        return JSONResponse(status_code=400, content={"message": "Invalid path"})
+    
     try:
         os.makedirs(full_path, exist_ok=True)
         return {"message": "Success"}
@@ -760,7 +915,7 @@ async def open_session_folder(data: dict):
         if platform.system() == "Darwin":
             subprocess.run(["open", abs_path])
         elif platform.system() == "Windows":
-            os.startfile(abs_path)
+            subprocess.run(["start", "", abs_path], shell=True)
         else:
             subprocess.run(["xdg-open", abs_path])
         return {"message": "Success"}
@@ -769,12 +924,17 @@ async def open_session_folder(data: dict):
 
 @app.delete("/sessions")
 async def delete_session(path: str):
-    # 清理传入路径，防止非法或越权删除
-    path = path.replace("..", "").strip("/")
     if not path or path == ".": 
         return JSONResponse(status_code=400, content={"message": "Cannot delete root"})
     
-    full_path = os.path.join(SESSIONS_DIR, path)
+    full_path = SESSIONS_DIR / path
+    try:
+        resolved = full_path.resolve()
+        if not str(resolved).startswith(str(SESSIONS_DIR.resolve())):
+            return JSONResponse(status_code=400, content={"message": "Invalid path"})
+    except Exception:
+        return JSONResponse(status_code=400, content={"message": "Invalid path"})
+    
     if not os.path.exists(full_path):
         return JSONResponse(status_code=404, content={"message": "Path not found"})
         
@@ -815,14 +975,58 @@ async def save_session(data: dict):
         "Protocol": "SSH",
         "UserName": data.get("user", "")
     }
-    config["Authentication"] = {
-        "Method": "Password",
-        "Password": data.get("pass", "")
-    }
+    
+    use_key = data.get("use_key", False)
+    if use_key and data.get("key_name"):
+        config["Authentication"] = {
+            "Method": "PublicKey",
+            "KeyName": data.get("key_name", ""),
+            "Password": _encrypt_password(data.get("pass", ""))
+        }
+    else:
+        config["Authentication"] = {
+            "Method": "Password",
+            "Password": _encrypt_password(data.get("pass", ""))
+        }
     
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
             config.write(f)
+        return {"message": "Success"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"message": str(e)})
+
+@app.get("/quick-buttons")
+async def get_quick_buttons():
+    qbl_file = QUICK_BUTTONS_DIR / "commands.qbl"
+    if qbl_file.exists():
+        return _parse_qbl_file(qbl_file)
+    return []
+
+@app.post("/quick-buttons")
+async def save_quick_buttons(data: dict):
+    try:
+        qbl_file = QUICK_BUTTONS_DIR / "commands.qbl"
+        buttons = data.get("buttons", [])
+        _save_qbl_file(qbl_file, buttons)
+        return {"message": "Success"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"message": str(e)})
+
+@app.get("/quick-buttons/file")
+async def get_quick_buttons_file():
+    qbl_file = QUICK_BUTTONS_DIR / "commands.qbl"
+    if qbl_file.exists():
+        return FileResponse(qbl_file, media_type='application/octet-stream', filename='commands.qbl')
+    return JSONResponse(status_code=404, content={"message": "File not found"})
+
+@app.post("/quick-buttons/file")
+async def upload_quick_buttons_file(file: UploadFile = File(...)):
+    try:
+        qbl_file = QUICK_BUTTONS_DIR / "commands.qbl"
+        content = await file.read()
+        with open(qbl_file, 'wb') as f:
+            f.write(content)
         return {"message": "Success"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"message": str(e)})
@@ -842,4 +1046,4 @@ if os.path.exists(FRONTEND_DIR):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8108)
+    uvicorn.run(app, host="127.0.0.1", port=8108)
