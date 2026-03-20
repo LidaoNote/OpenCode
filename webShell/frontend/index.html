@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebShell & SFTP</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="main-app">
+        <nav class="menu-bar">
+            <span>文件(F)</span><span>编辑(E)</span><span>查看(V)</span><span>工具(T)</span><span>选项卡(B)</span><span>窗口(W)</span><span>帮助(H)</span>
+        </nav>
+        <nav class="toolbar">
+            <div class="tool-group">
+                <button id="new-conn-btn" title="新连接"><i class="fas fa-file-alt"></i></button>
+                <button title="打开"><i class="fas fa-folder"></i></button>
+                <div class="menu-separator-v"></div>
+                <button id="reconnect-btn" title="重新连接"><i class="fas fa-sync"></i></button>
+                <button id="disconnect-btn" title="断开连接"><i class="fas fa-unlink"></i></button>
+                <div class="menu-separator-v"></div>
+                <button id="dashboard-tab" class="active" title="首页"><i class="fas fa-home"></i></button>
+            </div>
+            <div class="tabs" id="tab-bar">
+                <!-- Session tabs will start here, perfectly aligned with the sidebar edge -->
+            </div>
+            <div class="tool-group">
+                <button id="toggle-quick-cmd" title="快捷命令栏"><i class="fas fa-keyboard"></i></button>
+                <button id="sftp-toggle" title="SFTP 浏览器"><i class="fas fa-sync-alt"></i></button>
+                <select id="font-size-select" title="终端字号"
+                    style="margin-left: 5px; font-size: 12px; border: 1px solid #ccc; border-radius: 2px;">
+                    <option value="10">10px</option>
+                    <option value="12">12px</option>
+                    <option value="13" selected>13px</option>
+                    <option value="14">14px</option>
+                    <option value="16">16px</option>
+                    <option value="18">18px</option>
+                    <option value="20">20px</option>
+                </select>
+            </div>
+        </nav>
+
+        <div class="workspace">
+            <aside id="sidebar">
+                <div class="panel-header">会话管理器 <i class="fas fa-thumbtack"></i></div>
+                <div class="search-box">
+                    <label for="sidebar-search" class="hidden">搜索会话</label>
+                    <input type="text" id="sidebar-search" name="sidebar-search" placeholder="搜索会话...">
+                </div>
+                <ul id="session-list" class="session-tree">
+                    <!-- JS will render the tree here starting from 'All Sessions' -->
+                </ul>
+                <div class="properties-panel">
+                    <div class="panel-header">属性</div>
+                    <table class="props-table">
+                        <tr>
+                            <td>名称</td>
+                            <td id="prop-name">所有会话</td>
+                        </tr>
+                        <tr>
+                            <td>类型</td>
+                            <td id="prop-type">文件夹</td>
+                        </tr>
+                        <tr>
+                            <td>主机</td>
+                            <td id="prop-host"></td>
+                        </tr>
+                        <tr>
+                            <td>用户名</td>
+                            <td id="prop-user"></td>
+                        </tr>
+                        <tr>
+                            <td>协议</td>
+                            <td>SSH</td>
+                        </tr>
+                        <tr>
+                            <td>端口</td>
+                            <td id="prop-port">22</td>
+                        </tr>
+                    </table>
+                </div>
+            </aside>
+
+            <main id="main-content">
+                <div id="dashboard" class="dashboard">
+                    <div class="quick-start">
+                        <div class="qs-header">
+                            <i class="fas fa-bolt"></i> Quick Start
+                        </div>
+                        <div class="qs-search">
+                            <label for="qs-search-input" class="hidden">快捷连接搜索</label>
+                            <input type="text" id="qs-search-input" name="qs-search-input"
+                                placeholder="输入主机名或选择最近会话...">
+                            <button id="qs-new-btn"><i class="fas fa-edit"></i></button>
+                            <button><i class="fas fa-folder-open"></i></button>
+                        </div>
+                        <div class="qs-grid" id="qs-grid">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="terminal-wrapper" class="hidden">
+                    <div id="terminal-container"></div>
+                    <div id="quick-cmd-bar">
+                        <div id="quick-cmd-list"></div>
+                        <button id="add-quick-cmd-btn" title="编辑快速命令"><i class="fas fa-cog"></i></button>
+                    </div>
+                </div>
+            </main>
+
+            <div id="sftp-side-panel" class="hidden">
+                <div class="xftp-layout">
+                    <!-- Local Pane -->
+                    <div class="xftp-pane" id="local-pane">
+                        <div class="pane-header">
+                            <div class="pane-title"><i class="fas fa-desktop"></i> 本地</div>
+                            <div class="path-bar">
+                                <span id="local-path">C:\Users\robot</span>
+                            </div>
+                            <div class="pane-actions">
+                                <button id="local-up" title="向上"><i class="fas fa-arrow-up"></i></button>
+                                <button id="local-refresh" title="刷新"><i class="fas fa-sync"></i></button>
+                            </div>
+                        </div>
+                        <div class="pane-list-header">
+                            <span class="col-name sortable" data-sort="name" data-pane="local" title="点击按名称排序">名称 <i class="fas fa-sort sort-icon"></i></span>
+                            <span class="col-size sortable" data-sort="size" data-pane="local" title="点击按大小排序">大小 <i class="fas fa-sort sort-icon"></i></span>
+                            <span class="col-mtime sortable" data-sort="mtime" data-pane="local" title="点击按时间排序">修改时间 <i class="fas fa-sort sort-icon"></i></span>
+                        </div>
+                        <ul id="local-list" class="file-list"></ul>
+                    </div>
+
+                    <div class="pane-divider"></div>
+
+                    <!-- Remote Pane -->
+                    <div class="xftp-pane" id="remote-pane">
+                        <div class="pane-header">
+                            <div class="pane-title"><i class="fas fa-server"></i> 远程</div>
+                            <div class="path-bar">
+                                <span id="remote-path">/root</span>
+                            </div>
+                            <div class="pane-actions">
+                                <button id="sftp-up" title="向上"><i class="fas fa-arrow-up"></i></button>
+                                <button id="sftp-refresh" title="刷新"><i class="fas fa-sync"></i></button>
+                                <input type="file" id="upload-input" style="display:none">
+                                <button id="upload-btn" title="上传本地文件"><i class="fas fa-upload"></i></button>
+                            </div>
+                        </div>
+                        <div class="pane-list-header">
+                            <span class="col-name sortable" data-sort="name" data-pane="remote" title="点击按名称排序">名称 <i class="fas fa-sort sort-icon"></i></span>
+                            <span class="col-size sortable" data-sort="size" data-pane="remote" title="点击按大小排序">大小 <i class="fas fa-sort sort-icon"></i></span>
+                            <span class="col-mtime sortable" data-sort="mtime" data-pane="remote" title="点击按时间排序">修改时间 <i class="fas fa-sort sort-icon"></i></span>
+                        </div>
+                        <ul id="sftp-list" class="file-list"></ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="status-bar">
+            <span id="status-text">未连接</span>
+            <div class="status-right">
+                <span id="connection-info"></span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Login Dialog -->
+    <div id="login-overlay" class="overlay hidden">
+        <form id="login-form" class="login-card">
+            <h2><i class="fas fa-terminal"></i> 连接属性</h2>
+            <div class="input-group">
+                <label for="session-name-input">会话名称</label>
+                <input type="text" id="session-name-input" name="session-name" placeholder="我的服务器" autocomplete="off">
+            </div>
+            <div class="input-group">
+                <label for="host">主机</label>
+                <input type="text" id="host" name="host" placeholder="192.168.1.1" autocomplete="host">
+            </div>
+            <div class="input-group">
+                <label for="port">端口</label>
+                <input type="number" id="port" name="port" value="22" autocomplete="port">
+            </div>
+            <div class="input-group">
+                <label for="username">用户名</label>
+                <input type="text" id="username" name="username" placeholder="默认 root" autocomplete="username">
+            </div>
+            <div class="input-group">
+                <label>认证方式</label>
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+                    <input type="checkbox" id="use-key-checkbox" name="use-key">
+                    <label for="use-key-checkbox" style="font-size:12px; margin-bottom:0; cursor:pointer">使用私钥</label>
+                </div>
+                <label for="key-select" class="hidden">选择私钥</label>
+                <select id="key-select" name="key-name"
+                    style="width: 100%; border: 1px solid #ddd; padding: 5px; border-radius: 4px; background: white; font-size:12px;">
+                    <option value="">-- UserKeys 目录无密钥 --</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label for="password" id="password-label">密码 / 密钥短语</label>
+                <input type="password" id="password" name="password" autocomplete="current-password">
+            </div>
+            <div class="input-group" style="display:flex; align-items:center; gap:5px">
+                <input type="checkbox" id="save-session-checkbox" name="save-session" checked>
+                <label for="save-session-checkbox" style="margin-bottom:0; cursor:pointer">保存会话</label>
+            </div>
+            <div style="display:flex; gap:10px; margin-top:10px">
+                <button type="button" id="connect-btn">确定</button>
+                <button type="button" id="cancel-login-btn">取消</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="context-menu" class="hidden">
+        <div class="context-item" id="ctx-new"><i class="fas fa-plus"></i> 新建会话</div>
+        <div class="context-item" id="ctx-mkdir"><i class="fas fa-folder-plus"></i> 新建文件夹</div>
+        <div class="context-item" id="ctx-open-folder"><i class="fas fa-external-link-alt"></i> 在资源管理器打开</div>
+        <div class="menu-separator"></div>
+        <div class="context-item" id="ctx-expand-all"><i class="fas fa-angle-double-down"></i> 展开全部</div>
+        <div class="context-item" id="ctx-collapse-all"><i class="fas fa-angle-double-up"></i> 收缩全部</div>
+        <div class="menu-separator"></div>
+        <div class="context-item" id="ctx-toggle-props"><i class="fas fa-info-circle"></i> 显示属性窗格</div>
+        <div class="menu-separator"></div>
+        <div class="context-item" id="ctx-edit"><i class="fas fa-edit"></i> 编辑属性</div>
+        <div class="context-item" id="ctx-delete" style="color: #e74c3c;"><i class="fas fa-trash-alt"></i> 删除项目</div>
+        <div class="context-item" id="ctx-connect"><i class="fas fa-play"></i> 连接</div>
+    </div>
+
+    <!-- Monaco Editor Modal -->
+    <div id="editor-overlay" class="overlay hidden">
+        <div class="editor-window">
+            <div class="editor-header">
+                <div class="editor-title"><i class="fas fa-file-code"></i> <span
+                        id="editor-filename">filename.txt</span></div>
+                <div class="editor-actions">
+                    <span id="editor-save-tip"
+                        style="display: inline-block; vertical-align: middle; margin-right: 12px; margin-top: 8px; font-size: 13px; color: #27ae60; font-weight: 500; opacity: 0; transition: opacity 0.5s;"></span>
+                    <button id="editor-save" title="保存 (Ctrl+S)"><i class="fas fa-save"></i> 保存</button>
+                    <button id="editor-close" title="关闭"><i class="fas fa-times"></i> 关闭</button>
+                </div>
+            </div>
+            <div id="monaco-container"></div>
+        </div>
+    </div>
+
+    <!-- Context Menu for Xftp -->
+    <div id="xftp-context-menu" class="hidden">
+        <div class="context-item" id="xftp-ctx-new-file"><i class="fas fa-file-medical"></i> 新建文件</div>
+        <div class="context-item" id="xftp-ctx-new-folder"><i class="fas fa-folder-plus"></i> 新建文件夹</div>
+        <div class="menu-separator"></div>
+        <div class="context-item xftp-edit-item" id="xftp-ctx-edit"><i class="fas fa-edit"></i> 编辑文件</div>
+        <div class="menu-separator"></div>
+        <div class="context-item" id="xftp-ctx-transfer-overwrite"><i class="fas fa-exchange-alt"></i> 传输 (覆盖现有)</div>
+        <div class="context-item" id="xftp-ctx-transfer-skip"><i class="fas fa-step-forward"></i> 传输 (跳过现有)</div>
+        <div class="menu-separator"></div>
+        <div class="context-item" id="xftp-ctx-copy-path"><i class="fas fa-link"></i> 复制完整路径</div>
+        <div class="context-item" id="xftp-ctx-rename"><i class="fas fa-terminal"></i> 重命名</div>
+        <div class="context-item" id="xftp-ctx-delete" style="color: #e74c3c;"><i class="fas fa-trash-alt"></i> 删除</div>
+        <div class="menu-separator"></div>
+        <div class="context-item" id="xftp-ctx-chmod"><i class="fas fa-key"></i> 更改权限 (Chmod)</div>
+        <div class="context-item" id="xftp-ctx-props"><i class="fas fa-info-circle"></i> 属性</div>
+    </div>
+
+    <!-- Quick Command Editor Modal -->
+    <div id="quick-cmd-modal" class="overlay hidden" style="z-index: 4000;">
+        <div class="modal-box" style="width: 500px;">
+            <div class="modal-header">
+                <h3>编辑快速命令</h3>
+                <button id="close-quick-cmd-btn" class="close-btn"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 12px; color: #666; margin-bottom: 10px;">如果命令对应一个控制字符或特殊动作，请输入 `\x1a` 这样的 Hex
+                    转义形式用来代替组合按键发送。例如 `\x03` = Ctrl+C, `\x18` = Ctrl+X, `\x1a` = Ctrl+Z, `\x1b` = Esc</p>
+                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                    <input type="text" id="cmd-label-input" placeholder="按钮标签 (例如: Ctrl+Z)"
+                        style="width: 120px; padding: 5px;" />
+                    <input type="text" id="cmd-value-input" placeholder="发送内容 (支持支持\x或普通字符串)"
+                        style="flex:1; padding: 5px;" />
+                    <button id="btn-add-cmd"
+                        style="padding: 5px 15px; background: var(--accent-color); color: #fff; border:none; border-radius:3px; cursor: pointer;">添加</button>
+                </div>
+                <!-- Interactive list of commands -->
+                <ul id="quick-cmd-edit-list"
+                    style="list-style: none; padding: 0; margin: 0; max-height: 250px; overflow-y: auto; border: 1px solid #eee;">
+                    <!-- Items -->
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button id="save-quick-cmd-btn" class="btn btn-primary"
+                    style="width: 100%; padding: 8px;">关闭并保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.43.0/min/vs/loader.min.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>
