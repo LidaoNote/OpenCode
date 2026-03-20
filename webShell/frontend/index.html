@@ -12,8 +12,59 @@
 
 <body>
     <div id="main-app">
-        <nav class="menu-bar">
-            <span>文件(F)</span><span>编辑(E)</span><span>查看(V)</span><span>工具(T)</span><span>选项卡(B)</span><span>窗口(W)</span><span>帮助(H)</span>
+        <nav class="menu-bar" id="menu-bar">
+            <div class="menu-item" data-menu="file">
+                <span class="menu-label">文件(F)</span>
+                <div class="menu-dropdown" id="menu-file">
+                    <div class="menu-dropdown-item" data-action="new-connection"><span>新建连接</span><kbd>Ctrl+N</kbd></div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-dropdown-item" data-action="close-tab"><span>关闭选项卡</span><kbd>Ctrl+W</kbd></div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-dropdown-item" data-action="exit"><span>退出</span></div>
+                </div>
+            </div>
+            <div class="menu-item" data-menu="edit">
+                <span class="menu-label">编辑(E)</span>
+                <div class="menu-dropdown" id="menu-edit">
+                    <div class="menu-dropdown-item" data-action="copy"><span>复制</span><kbd>Ctrl+C</kbd></div>
+                    <div class="menu-dropdown-item" data-action="paste"><span>粘贴</span><kbd>Ctrl+V</kbd></div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-dropdown-item" data-action="select-all"><span>全选</span><kbd>Ctrl+A</kbd></div>
+                </div>
+            </div>
+            <div class="menu-item" data-menu="view">
+                <span class="menu-label">查看(V)</span>
+                <div class="menu-dropdown" id="menu-view">
+                    <div class="menu-dropdown-item" data-action="toggle-sftp"><span>切换 SFTP 浏览器</span><kbd>Alt+S</kbd></div>
+                    <div class="menu-dropdown-item" data-action="toggle-props"><span>切换属性面板</span></div>
+                    <div class="menu-dropdown-item" data-action="toggle-quick-cmd"><span>切换快速命令栏</span></div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-dropdown-item" data-action="zoom-in"><span>放大字体</span><kbd>Ctrl++</kbd></div>
+                    <div class="menu-dropdown-item" data-action="zoom-out"><span>缩小字体</span><kbd>Ctrl+-</kbd></div>
+                    <div class="menu-dropdown-item" data-action="zoom-reset"><span>重置字体大小</span></div>
+                </div>
+            </div>
+            <div class="menu-item" data-menu="tools">
+                <span class="menu-label">工具(T)</span>
+                <div class="menu-dropdown" id="menu-tools">
+                    <div class="menu-dropdown-item" data-action="open-session-folder"><span>打开会话文件夹</span></div>
+                    <div class="menu-dropdown-item" data-action="refresh-sessions"><span>刷新会话列表</span></div>
+                </div>
+            </div>
+            <div class="menu-item" data-menu="window">
+                <span class="menu-label">窗口(W)</span>
+                <div class="menu-dropdown" id="menu-window">
+                    <div class="menu-dropdown-item" data-action="show-dashboard"><span>返回首页</span></div>
+                    <div class="menu-separator"></div>
+                    <div id="window-session-list"></div>
+                </div>
+            </div>
+            <div class="menu-item" data-menu="help">
+                <span class="menu-label">帮助(H)</span>
+                <div class="menu-dropdown" id="menu-help">
+                    <div class="menu-dropdown-item" data-action="about"><span>关于</span></div>
+                </div>
+            </div>
         </nav>
         <nav class="toolbar">
             <div class="tool-group">
@@ -30,7 +81,7 @@
             </div>
             <div class="tool-group">
                 <button id="toggle-quick-cmd" title="快捷命令栏"><i class="fas fa-keyboard"></i></button>
-                <button id="sftp-toggle" title="SFTP 浏览器"><i class="fas fa-sync-alt"></i></button>
+                <button id="sftp-toggle" title="SFTP 浏览器"><i class="fas fa-arrows-left-right"></i></button>
                 <select id="font-size-select" title="终端字号"
                     style="margin-left: 5px; font-size: 12px; border: 1px solid #ccc; border-radius: 2px;">
                     <option value="10">10px</option>
@@ -269,27 +320,32 @@
 
     <!-- Quick Command Editor Modal -->
     <div id="quick-cmd-modal" class="overlay hidden" style="z-index: 4000;">
-        <div class="modal-box" style="width: 500px;">
+        <div class="modal-box" style="width: 650px;">
             <div class="modal-header">
-                <h3>编辑快速命令</h3>
+                <h3>编辑快速命令 <span style="font-size:12px; font-weight:normal; color:#888;">(兼容 Xshell qbl 格式)</span></h3>
                 <button id="close-quick-cmd-btn" class="close-btn"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body">
-                <p style="font-size: 12px; color: #666; margin-bottom: 10px;">如果命令对应一个控制字符或特殊动作，请输入 `\x1a` 这样的 Hex
-                    转义形式用来代替组合按键发送。例如 `\x03` = Ctrl+C, `\x18` = Ctrl+X, `\x1a` = Ctrl+Z, `\x1b` = Esc</p>
                 <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                    <input type="text" id="cmd-label-input" placeholder="按钮标签 (例如: Ctrl+Z)"
-                        style="width: 120px; padding: 5px;" />
-                    <input type="text" id="cmd-value-input" placeholder="发送内容 (支持支持\x或普通字符串)"
+                    <input type="text" id="cmd-label-input" placeholder="按钮名称"
+                        style="width: 100px; padding: 5px;" />
+                    <input type="text" id="cmd-value-input" placeholder="命令内容 (\n=换行, \r=回车, \x03=Ctrl+C)"
                         style="flex:1; padding: 5px;" />
                     <button id="btn-add-cmd"
                         style="padding: 5px 15px; background: var(--accent-color); color: #fff; border:none; border-radius:3px; cursor: pointer;">添加</button>
                 </div>
-                <!-- Interactive list of commands -->
                 <ul id="quick-cmd-edit-list"
-                    style="list-style: none; padding: 0; margin: 0; max-height: 250px; overflow-y: auto; border: 1px solid #eee;">
-                    <!-- Items -->
+                    style="list-style: none; padding: 0; margin: 0; max-height: 300px; overflow-y: auto; border: 1px solid #eee;">
                 </ul>
+                <div style="margin-top: 10px; display: flex; gap: 10px; justify-content: center;">
+                    <button id="import-qbl-btn" class="btn" style="padding: 6px 16px; background: #666; color: #fff; border:none; border-radius:3px; cursor: pointer;">
+                        <i class="fas fa-file-import"></i> 导入 qbl
+                    </button>
+                    <button id="export-qbl-btn" class="btn" style="padding: 6px 16px; background: #666; color: #fff; border:none; border-radius:3px; cursor: pointer;">
+                        <i class="fas fa-file-export"></i> 导出 qbl
+                    </button>
+                </div>
+                <input type="file" id="qbl-file-input" accept=".qbl" style="display:none">
             </div>
             <div class="modal-footer">
                 <button id="save-quick-cmd-btn" class="btn btn-primary"

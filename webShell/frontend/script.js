@@ -1,4 +1,11 @@
 // ==================== DOM References ====================
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
 const loginOverlay = document.getElementById('login-overlay');
 const connectBtn = document.getElementById('connect-btn');
 const cancelLoginBtn = document.getElementById('cancel-login-btn');
@@ -119,7 +126,7 @@ function createTreeNode(node) {
     content.innerHTML = `
         <span class="toggle-icon">${isFolder ? (isExpanded ? '▾' : '▸') : ''}</span>
         <i class="fas ${iconClass}" style="color:${iconColor}"></i>
-        <span class="node-name">${node.name}</span>
+        <span class="node-name">${escapeHtml(node.name)}</span>
     `;
 
     li.appendChild(content);
@@ -200,6 +207,21 @@ function showPropertiesFromNode(node) {
     document.getElementById('port').value = node.port || 22;
     document.getElementById('username').value = node.user || '';
     document.getElementById('password').value = node.pass || '';
+    
+    if (node.use_key) {
+        document.getElementById('use-key-checkbox').checked = true;
+        const keySelect = document.getElementById('key-select');
+        if (node.key_name) {
+            for (let option of keySelect.options) {
+                if (option.value === node.key_name) {
+                    option.selected = true;
+                    break;
+                }
+            }
+        }
+    } else {
+        document.getElementById('use-key-checkbox').checked = false;
+    }
 
     document.getElementById('prop-name').innerText = node.name;
     document.getElementById('prop-host').innerText = node.host || '--';
@@ -515,7 +537,15 @@ connectBtn.addEventListener('click', async () => {
     if (!host) { alert('请填写主机地址'); return; }
     if (useKey && !keyName) { alert('请选择私钥文件'); return; }
 
-    if (shouldSave) await saveSessionToBackend({ name: name || host, host, port, user: username, pass: password });
+    if (shouldSave) await saveSessionToBackend({ 
+        name: name || host, 
+        host, 
+        port, 
+        user: username, 
+        pass: password,
+        use_key: useKey,
+        key_name: keyName
+    });
 
     loginOverlay.classList.add('hidden');
 
@@ -558,7 +588,7 @@ function addSessionTab(sid, title, host, user, port) {
 
         const tab = document.createElement('div');
         tab.className = 'tab session-tab';
-        tab.innerHTML = `<i class="fas fa-terminal"></i> <span>${title}</span>`;
+        tab.innerHTML = `<i class="fas fa-terminal"></i> <span>${escapeHtml(title)}</span>`;
 
         const closeBtn = document.createElement('div');
         closeBtn.className = 'tab-close';
@@ -1123,7 +1153,7 @@ function renderLocalFiles(files) {
         li.className = 'sftp-item';
         const icon = file.is_dir ? 'fa-folder' : 'fa-file';
         const mtimeStr = file.mtime ? new Date(file.mtime * 1000).toLocaleString() : '--';
-        li.innerHTML = `<i class="fas ${icon}" style="color:${file.is_dir ? '#e6a817' : '#7f8c8d'}"></i><span class="name">${file.name}</span><span class="size">${file.is_dir ? '--' : formatSize(file.size)}</span><span class="mtime">${mtimeStr}</span>`;
+        li.innerHTML = `<i class="fas ${icon}" style="color:${file.is_dir ? '#e6a817' : '#7f8c8d'}"></i><span class="name">${escapeHtml(file.name)}</span><span class="size">${file.is_dir ? '--' : formatSize(file.size)}</span><span class="mtime">${escapeHtml(mtimeStr)}</span>`;
         const ownerStr = (file.uid !== undefined ? file.uid : '-') + ':' + (file.gid !== undefined ? file.gid : '-');
         const tooltipStr = `名称: ${file.name}\n修改时间: ${mtimeStr}\n所有者: ${ownerStr}\n权限: ${file.permissions || '--'}`;
 
@@ -1238,7 +1268,7 @@ function renderSFTPFiles(files) {
         li.className = 'sftp-item';
         const icon = file.is_dir ? 'fa-folder' : 'fa-file';
         const mtimeStr = file.mtime ? new Date(file.mtime * 1000).toLocaleString() : '--';
-        li.innerHTML = `<i class="fas ${icon}" style="color:${file.is_dir ? '#e6a817' : '#7f8c8d'}"></i><span class="name">${file.name}</span><span class="size">${file.is_dir ? '--' : formatSize(file.size)}</span><span class="mtime">${mtimeStr}</span>`;
+        li.innerHTML = `<i class="fas ${icon}" style="color:${file.is_dir ? '#e6a817' : '#7f8c8d'}"></i><span class="name">${escapeHtml(file.name)}</span><span class="size">${file.is_dir ? '--' : formatSize(file.size)}</span><span class="mtime">${escapeHtml(mtimeStr)}</span>`;
         const ownerStr = (file.uid !== undefined ? file.uid : '-') + ':' + (file.gid !== undefined ? file.gid : '-');
         const tooltipStr = `名称: ${file.name}\n修改时间: ${mtimeStr}\n所有者: ${ownerStr}\n权限: ${file.permissions || '--'}`;
 
@@ -1480,18 +1510,54 @@ uploadInput.addEventListener('change', async () => {
 });
 
 // ==================== Quick Command Bar ====================
-let quickCommands = JSON.parse(localStorage.getItem('quickCommands')) || [
-    { label: '密码', command: 'password\n' },
-    { label: '密钥', command: 'cat ~/.ssh/id_rsa.pub\n' },
-    { label: '更新', command: 'apt update && apt upgrade -y\n' },
-    { label: 'bbr', command: 'lsmod | grep bbr\n' },
-    { label: 'Docker', command: 'docker ps\n' },
-    { label: 'Ctrl+C', command: '\\x03' },
-    { label: 'Ctrl+Z', command: '\\x1a' },
-    { label: 'Ctrl+X', command: '\\x18' },
-    { label: '粘贴', command: '' },
-    { label: '退出', command: 'exit\n' }
+const DEFAULT_QUICK_COMMANDS = [
+    { name: '密码', command: 'password\n', icon: 0, type: 1 },
+    { name: '密钥', command: 'cat ~/.ssh/id_rsa.pub\n', icon: 5, type: 1 },
+    { name: '更新', command: 'apt update && apt upgrade -y\n', icon: 5, type: 1 },
+    { name: 'bbr', command: 'lsmod | grep bbr\n', icon: 5, type: 1 },
+    { name: 'Docker', command: 'docker ps\n', icon: 4, type: 1 },
+    { name: 'Ctrl+C', command: '\x03', icon: 0, type: 1 },
+    { name: 'Ctrl+Z', command: '\x1a', icon: 0, type: 1 },
+    { name: 'Ctrl+X', command: '\x18', icon: 0, type: 1 },
+    { name: '粘贴', command: '__PASTE__', icon: 4, type: 0 },
+    { name: '退出', command: 'exit\n', icon: 0, type: 1 }
 ];
+
+let quickCommands = [];
+
+async function loadQuickCommands() {
+    try {
+        const resp = await fetch(`${API_BASE}/quick-buttons`);
+        if (resp.ok) {
+            const data = await resp.json();
+            quickCommands = data.length > 0 ? data : [...DEFAULT_QUICK_COMMANDS];
+        } else {
+            quickCommands = [...DEFAULT_QUICK_COMMANDS];
+        }
+    } catch (e) {
+        console.error('Failed to load quick commands:', e);
+        quickCommands = [...DEFAULT_QUICK_COMMANDS];
+    }
+    renderQuickCommands();
+}
+
+async function saveQuickCommandsToBackend() {
+    try {
+        const resp = await fetch(`${API_BASE}/quick-buttons`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ buttons: quickCommands })
+        });
+        if (resp.ok) {
+            statusText.innerText = '快捷按钮已保存';
+        } else {
+            const err = await resp.json();
+            alert('保存失败: ' + err.message);
+        }
+    } catch (e) {
+        console.error('Failed to save quick commands:', e);
+    }
+}
 
 const quickCmdBar = document.getElementById('quick-cmd-bar');
 const quickCmdList = document.getElementById('quick-cmd-list');
@@ -1510,22 +1576,44 @@ document.getElementById('toggle-quick-cmd').addEventListener('click', () => {
     }
 });
 
+const QBL_ICON_MAP = {
+    0: '',              // Default - no icon
+    1: 'fa-terminal',   // Run/Execute
+    2: 'fa-network-wired', // Network
+    3: 'fa-rocket',     // Cloud/Deploy
+    4: 'fa-cloud-download-alt', // Download
+    5: 'fa-tools'       // Tools/Config
+};
+
 function renderQuickCommands() {
     quickCmdList.innerHTML = '';
     quickCommands.forEach((cmd, idx) => {
         const btn = document.createElement('div');
         btn.className = 'quick-cmd-item';
-        btn.innerText = cmd.label;
+        btn.setAttribute('data-icon', cmd.icon || 0);
+        
+        const iconClass = QBL_ICON_MAP[cmd.icon] || '';
+        if (iconClass) {
+            btn.innerHTML = `<i class="fas ${iconClass}"></i>${escapeHtml(cmd.name || cmd.label)}`;
+        } else {
+            btn.innerText = cmd.name || cmd.label;
+        }
+        
         btn.addEventListener('click', async () => {
-            if (cmd.label === '粘贴') {
+            const cmdText = cmd.command || cmd.label;
+            if (cmdText === '__PASTE__') {
                 try {
                     const text = await navigator.clipboard.readText();
                     sendQuickCommand(text);
                 } catch (e) {
                     console.error('Clipboard read failed', e);
                 }
+            } else if (cmdText === '__RECONNECT__') {
+                document.getElementById('reconnect-btn').click();
+            } else if (cmdText === '__DISCONNECT__') {
+                if (currentSid) closeSession(currentSid);
             } else {
-                sendQuickCommand(cmd.command);
+                sendQuickCommand(cmdText);
             }
         });
         quickCmdList.appendChild(btn);
@@ -1559,8 +1647,8 @@ document.getElementById('close-quick-cmd-btn').addEventListener('click', () => {
     quickCmdModal.classList.add('hidden');
 });
 
-document.getElementById('save-quick-cmd-btn').addEventListener('click', () => {
-    localStorage.setItem('quickCommands', JSON.stringify(quickCommands));
+document.getElementById('save-quick-cmd-btn').addEventListener('click', async () => {
+    await saveQuickCommandsToBackend();
     renderQuickCommands();
     quickCmdModal.classList.add('hidden');
 });
@@ -1570,20 +1658,29 @@ function renderQuickCmdEditList() {
     quickCommands.forEach((cmd, idx) => {
         const row = document.createElement('li');
         row.className = 'cmd-edit-row';
+        
+        const iconOptions = Object.entries(QBL_ICON_MAP).map(([val, icon]) => 
+            `<option value="${val}" ${cmd.icon == val ? 'selected' : ''}>${val}: ${icon || 'default'}</option>`
+        ).join('');
+        
         row.innerHTML = `
-            <input type="text" value="${cmd.label}" style="width:100px" data-idx="${idx}" class="edit-label">
-            <input type="text" value="${cmd.command.replace(/'/g, "&#39;").replace(/"/g, "&quot;")}" style="flex:1" data-idx="${idx}" class="edit-value">
+            <input type="text" value="${escapeHtml(cmd.name || '')}" style="width:80px" data-idx="${idx}" class="edit-name" placeholder="名称">
+            <input type="text" value="${escapeHtml((cmd.command || '').replace(/'/g, "&#39;").replace(/"/g, "&quot;"))}" style="flex:1" data-idx="${idx}" class="edit-command" placeholder="命令">
+            <select data-idx="${idx}" class="edit-icon" style="width:80px">${iconOptions}</select>
             <button class="del-cmd-btn" data-idx="${idx}" title="删除"><i class="fas fa-trash"></i></button>
         `;
         quickCmdEditList.appendChild(row);
     });
 
     // Attach listeners after render
-    document.querySelectorAll('.edit-label').forEach(el => el.addEventListener('input', (e) => {
-        quickCommands[e.target.dataset.idx].label = e.target.value;
+    document.querySelectorAll('.edit-name').forEach(el => el.addEventListener('input', (e) => {
+        quickCommands[e.target.dataset.idx].name = e.target.value;
     }));
-    document.querySelectorAll('.edit-value').forEach(el => el.addEventListener('input', (e) => {
+    document.querySelectorAll('.edit-command').forEach(el => el.addEventListener('input', (e) => {
         quickCommands[e.target.dataset.idx].command = e.target.value;
+    }));
+    document.querySelectorAll('.edit-icon').forEach(el => el.addEventListener('change', (e) => {
+        quickCommands[e.target.dataset.idx].icon = parseInt(e.target.value) || 0;
     }));
     document.querySelectorAll('.del-cmd-btn').forEach(el => el.addEventListener('click', (e) => {
         quickCommands.splice(e.currentTarget.dataset.idx, 1);
@@ -1592,15 +1689,191 @@ function renderQuickCmdEditList() {
 }
 
 document.getElementById('btn-add-cmd').addEventListener('click', () => {
-    const label = document.getElementById('cmd-label-input').value.trim();
-    const value = document.getElementById('cmd-value-input').value.trim();
-    if (label !== '') {
-        quickCommands.push({ label, command: value });
+    const name = document.getElementById('cmd-label-input').value.trim();
+    const command = document.getElementById('cmd-value-input').value.trim();
+    if (name !== '') {
+        quickCommands.push({ name, command, icon: 0, type: 1, index: quickCommands.length });
         document.getElementById('cmd-label-input').value = '';
         document.getElementById('cmd-value-input').value = '';
         renderQuickCmdEditList();
     }
 });
 
+document.getElementById('export-qbl-btn').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(quickCommands, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'commands.json';
+    a.click();
+    URL.revokeObjectURL(url);
+});
+
+document.getElementById('import-qbl-btn').addEventListener('click', () => {
+    document.getElementById('qbl-file-input').click();
+});
+
+document.getElementById('qbl-file-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    try {
+        const text = await file.text();
+        let data;
+        if (file.name.endsWith('.json')) {
+            data = JSON.parse(text);
+        } else {
+            const resp = await fetch(`${API_BASE}/quick-buttons/file`);
+            if (!resp.ok) throw new Error('上传失败');
+        }
+        quickCommands = data;
+        renderQuickCmdEditList();
+        statusText.innerText = '已导入 ' + quickCommands.length + ' 个按钮';
+    } catch (err) {
+        alert('导入失败: ' + err.message);
+    }
+    e.target.value = '';
+});
+
 // Initial Render
-renderQuickCommands();
+loadQuickCommands();
+
+// ==================== Menu Bar Functions ====================
+function updateWindowSessionList() {
+    const container = document.getElementById('window-session-list');
+    if (!container) return;
+    container.innerHTML = '';
+    
+    Object.keys(activeSessions).forEach(sid => {
+        const s = activeSessions[sid];
+        const item = document.createElement('div');
+        item.className = 'menu-dropdown-item';
+        item.innerHTML = `<span>${escapeHtml(s.host)}</span>`;
+        item.addEventListener('click', () => showTerminal(sid));
+        container.appendChild(item);
+    });
+}
+
+function handleMenuAction(action) {
+    const fontSizes = ['10', '12', '13', '14', '16', '18', '20'];
+    
+    switch(action) {
+        case 'new-connection':
+            document.getElementById('new-conn-btn').click();
+            break;
+        case 'close-tab':
+            if (currentSid) closeSession(currentSid);
+            break;
+        case 'exit':
+            if (confirm('确定退出？')) {
+                Object.keys(activeSessions).forEach(sid => closeSession(sid));
+                window.close();
+            }
+            break;
+        case 'copy':
+            document.execCommand('copy');
+            break;
+        case 'paste':
+            navigator.clipboard.readText().then(text => {
+                if (currentSid && activeSessions[currentSid]?.socket?.readyState === WebSocket.OPEN) {
+                    activeSessions[currentSid].socket.send(text);
+                }
+            });
+            break;
+        case 'select-all':
+            if (!sftpPanel.classList.contains('hidden')) {
+                document.querySelectorAll('.sortable').forEach(el => {
+                    const pane = el.getAttribute('data-pane');
+                    if (pane) {
+                        const list = pane === 'local' ? localList : sftpList;
+                        selections[pane].clear();
+                        Array.from(list.children).forEach(li => {
+                            const name = li.querySelector('.name')?.innerText;
+                            if (name && name !== '..') selections[pane].add(name);
+                        });
+                        renderSelection(pane);
+                    }
+                });
+            }
+            break;
+        case 'toggle-sftp':
+            document.getElementById('sftp-toggle').click();
+            break;
+        case 'toggle-props':
+            document.getElementById('ctx-toggle-props').click();
+            break;
+        case 'toggle-quick-cmd':
+            document.getElementById('toggle-quick-cmd').click();
+            break;
+        case 'zoom-in':
+            const idxUp = fontSizes.indexOf(fontSizeSelect.value);
+            if (idxUp < fontSizes.length - 1) {
+                fontSizeSelect.value = fontSizes[idxUp + 1];
+                fontSizeSelect.dispatchEvent(new Event('change'));
+            }
+            break;
+        case 'zoom-out':
+            const idxDown = fontSizes.indexOf(fontSizeSelect.value);
+            if (idxDown > 0) {
+                fontSizeSelect.value = fontSizes[idxDown - 1];
+                fontSizeSelect.dispatchEvent(new Event('change'));
+            }
+            break;
+        case 'zoom-reset':
+            fontSizeSelect.value = '13';
+            fontSizeSelect.dispatchEvent(new Event('change'));
+            break;
+        case 'open-session-folder':
+            fetch(`${API_BASE}/sessions/open-folder`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: '.' })
+            });
+            break;
+        case 'refresh-sessions':
+            loadSessions();
+            break;
+        case 'show-dashboard':
+            showDashboard();
+            break;
+        case 'about':
+            alert('WebShell & SFTP\n版本 1.0\n基于 FastAPI + asyncssh\n支持 SSH/SFTP 多会话管理');
+            break;
+    }
+}
+
+document.querySelectorAll('.menu-dropdown-item[data-action]').forEach(item => {
+    item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = item.getAttribute('data-action');
+        handleMenuAction(action);
+    });
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey) {
+        switch(e.key.toLowerCase()) {
+            case 'n':
+                e.preventDefault();
+                handleMenuAction('new-connection');
+                break;
+            case 'w':
+                e.preventDefault();
+                handleMenuAction('close-tab');
+                break;
+            case 'c':
+            case 'v':
+            case 'a':
+                if (!document.activeElement.matches('input, textarea, [contenteditable]')) {
+                    handleMenuAction(e.key.toLowerCase() === 'c' ? 'copy' : e.key.toLowerCase() === 'v' ? 'paste' : 'select-all');
+                }
+                break;
+        }
+    }
+    if (e.altKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleMenuAction('toggle-sftp');
+    }
+});
+
+setInterval(updateWindowSessionList, 1000);
