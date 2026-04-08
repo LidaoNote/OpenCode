@@ -11,7 +11,7 @@ ARCH=$(uname -m)
 case "$ARCH" in
     x86_64)
         SMARTDNS_ARCH="x86_64"
-        INSTALL_METHOD="tar"
+        INSTALL_METHOD="deb"
         ;;
     aarch64)
         SMARTDNS_ARCH="aarch64"
@@ -142,7 +142,13 @@ install_smartdns() {
             echo "下载 SmartDNS .deb 包失败"
             exit 1
         fi
-        dpkg -i smartdns.deb
+        # 清理旧的残留，确保路径纯净
+        rm -f /usr/local/sbin/smartdns /usr/bin/smartdns /usr/local/bin/smartdns
+        [ -L /usr/sbin/smartdns ] && rm -f /usr/sbin/smartdns
+        
+        # 强制非交互模式并恢复默认配置
+        export DEBIAN_FRONTEND=noninteractive
+        dpkg -i --force-confdef --force-confnew smartdns.deb
         if [ $? -ne 0 ]; then
             echo "安装 SmartDNS .deb 包失败，尝试修复依赖..."
             apt install -f -y
@@ -170,26 +176,37 @@ install_smartdns() {
             rm -rf smartdns smartdns.tar.gz
             exit 1
         fi
+        # 核心修复：检查关键组件是否为符号链接，如果是则转为真实拷贝，防止 rm -rf 导致安装失效
+        for link_file in /usr/sbin/smartdns /lib/systemd/system/smartdns.service /etc/default/smartdns; do
+            if [ -L "$link_file" ]; then
+                real_file=$(readlink -f "$link_file")
+                if [ -f "$real_file" ]; then
+                    cp -f "$real_file" "$link_file.tmp"
+                    rm -f "$link_file"
+                    mv "$link_file.tmp" "$link_file"
+                    chmod +x "$link_file" 2>/dev/null || true
+                fi
+            fi
+        done
         cd ..
         rm -rf smartdns smartdns.tar.gz
     fi
     # 验证二进制
     if command -v smartdns >/dev/null 2>&1; then
-        echo "SmartDNS 安装成功，版本: $(smartdns --version)"
+        echo "SmartDNS 安装成功，版本: $(smartdns -v 2>&1 | head -n 1)"
     else
         echo "SmartDNS 安装失败，未找到 smartdns 命令"
         exit 1
     fi
     # 确保配置目录存在
     mkdir -p /etc/smartdns
-    # 启动服务
+    # 尝试启动服务（初次安装可能因为配置缺失失败，由后续配置步骤修复，此处不强制退出）
     systemctl enable smartdns
-    systemctl restart smartdns
+    systemctl restart smartdns >/dev/null 2>&1
     if systemctl is-active --quiet smartdns; then
         echo "SmartDNS 服务已成功启动"
     else
-        echo "SmartDNS 服务启动失败，请检查 'systemctl status smartdns.service'"
-        exit 1
+        echo "SmartDNS 基础组件已就绪，正在准备注入正式配置..."
     fi
 }
 
