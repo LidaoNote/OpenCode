@@ -28,6 +28,7 @@ OpenCode 仓库由离岛维护，关联 [YouTube 频道](https://youtube.com/@Li
 | bcrypt10.py         | 使用 bcrypt 进行加密的 Python 脚本，能进行 10 次密码哈希。          |
 | block.txt           | 黑名单文件，包含国内屏蔽的 IP 或域名。                              |
 | china_ip.txt        | 中国 IP 地址列表。                                                 |
+| china_ip6.txt       | 中国 IPv6 地址列表（与 china_ip.txt 的 IPv4 列表分开）。            |
 | dns.sh              | DNS 相关脚本，用于一键 SmartDNS / AdGuardHome 安装和卸载。          |
 | doh.py              | DNS over HTTPS (DoH) 相关脚本，用于加密 DNS 查询。                 |
 | unique_ip.txt       | DNS 污染后的 IP 地址返回列表，来源是维基百科。                      |
